@@ -219,6 +219,79 @@ svg text{font-family:var(--f)}
 }
 
 @media (max-width:520px){.fl{margin-left:0;flex:1 1 100%}}
+
+/* ===== refino: menor, mais calmo, barra de vidro ===== */
+#top{padding:calc(10px + env(safe-area-inset-top)) 16px 8px;gap:8px}
+#ttl{font-size:21px;font-weight:700}
+#sub{font-size:10.5px}
+.ib{width:36px;height:36px}.ib svg{width:17px;height:17px}.ib.av{font-size:13px}
+.view{top:calc(54px + env(safe-area-inset-top));padding:4px 14px calc(92px + env(safe-area-inset-bottom))}
+.sec{margin:22px 4px 8px;font-size:15px;font-weight:600;color:var(--txt)}
+.sec small{font-size:12px}.sec .lk{font-size:13px}
+.card{border-radius:20px;padding:14px;margin-bottom:10px}
+.lbl{font-size:10.5px;letter-spacing:.07em}
+.meta{font-size:12px}
+.b{min-height:42px;border-radius:14px;font-size:14px;font-weight:600;padding:8px 16px}
+.b.sm{min-height:34px;font-size:13px;padding:5px 13px;border-radius:12px}
+.hero{padding:16px 16px 14px}
+.hero .v{font-size:36px;margin:6px 0 4px;font-weight:700;letter-spacing:-.02em}
+.hero .v small{font-size:19px}
+.hero .split{font-size:11px;margin-top:12px}.hero .split b{font-size:14px}
+.bar{height:5px;margin-top:10px}
+.tiles{gap:6px;margin:2px 0 10px}
+.tile{gap:6px}
+.tile .ti{max-width:54px;border-radius:17px}
+.tile svg{width:20px;height:20px}
+.tile small{font-size:11px;color:var(--dim)}
+.tile .tb{min-width:16px;height:16px;font-size:9.5px;top:-3px;right:-3px}
+.env .num{font-size:19px;margin-top:8px}
+.env .top b{font-size:13px;font-weight:600}
+.pill{font-size:10.5px;padding:3px 9px}
+.al{padding:10px 12px;border-radius:16px;font-size:12.5px;gap:10px;margin-bottom:8px}
+.al.warn,.al.bad{background:var(--panel)}
+.al:before{width:7px;height:7px;margin-top:6px}
+.al .acts .b.sm{min-height:30px;font-size:12px;padding:4px 11px}
+.it{padding:11px 0;gap:12px}
+.ic{width:36px;height:36px}.ic svg{width:17px;height:17px}
+.it .t b{font-size:14px;font-weight:500}
+.it .t .tp{font-size:10.5px}
+.it .t span{font-size:11.5px}
+.it .v{font-size:14px;font-weight:600}
+.dayh{font-size:12px;margin:16px 6px 6px}
+.chips{gap:6px;padding:8px 0 2px}
+.chip{min-height:32px;padding:0 13px;font-size:12.5px;border-radius:16px}
+.mh b{font-size:16px}.mh small{font-size:12px}
+.ms{padding:6px 2px 8px}
+.mb{flex:1 0 48px;gap:8px}
+.mb .bw{height:52px}.mb .bw i{width:8px}.mb small{font-size:10.5px}
+.ln{font-size:13.5px;padding:7px 0}
+.ln.tot{padding-top:10px}
+.tabs button{font-size:14px;padding:10px 12px 11px}
+.leg{font-size:12px}
+.donut svg{width:120px;height:120px}
+.crow .l{font-size:13px}
+.rv .h b{font-size:14px}
+.rv{padding:11px 0 13px}
+#sheet h3{font-size:18px}
+.cg button{min-height:74px;font-size:11px}
+.valor{font-size:34px;min-height:64px}
+#toast{bottom:calc(78px + env(safe-area-inset-bottom));font-size:13px;padding:10px 16px}
+
+/* barra de baixo: vidro com reflexo, mais perto da borda */
+#tabbar{bottom:calc(2px + env(safe-area-inset-bottom));height:58px;width:min(392px,calc(100% - 32px));border-radius:29px;padding:0 6px;
+  background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.035));
+  backdrop-filter:blur(28px) saturate(190%);-webkit-backdrop-filter:blur(28px) saturate(190%);
+  border:1px solid rgba(255,255,255,.14);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.30),inset 0 -1px 0 rgba(255,255,255,.05),0 8px 26px rgba(0,0,0,.38)}
+#tabbar:before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:radial-gradient(120% 150% at 12% -30%,rgba(255,255,255,.26),transparent 52%),radial-gradient(90% 120% at 100% 130%,rgba(74,158,255,.12),transparent 60%)}
+:root[data-theme="light"] #tabbar{background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(255,255,255,.42));border-color:rgba(255,255,255,.75);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 8px 26px rgba(30,50,80,.16)}
+:root[data-theme="light"] #tabbar:before{background:radial-gradient(120% 150% at 12% -30%,rgba(255,255,255,.9),transparent 52%)}
+#tabbar>button{font-size:10px;gap:3px}
+#tabbar svg{width:21px;height:21px}
+#tabbar .plus{width:44px;height:44px;margin:0 4px;box-shadow:0 4px 14px rgba(74,158,255,.4)}
+#tabbar .plus svg{width:21px;height:21px}
+#tabbar .bdg{top:6px;height:15px;min-width:15px;font-size:9px;left:calc(50% + 5px)}
+@media (min-width:900px){#tabbar{bottom:12px}.cols{gap:18px}}
 </style>
 </head>
 <body>
@@ -261,7 +334,7 @@ const $=s=>document.querySelector(s);
 const LS='saveon:v1',LA='saveon:auth',LT='saveon:tema',LP='saveon:pdfpw';
 let IMPF='debito';
 const LC='saveon:conta';
-const VERSAO='v6';
+const VERSAO='v7';
 const API=(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:8788':'https://saveon.igordejesusp.workers.dev';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brl=v=>(v<0?'−':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -571,14 +644,14 @@ function rExtrato(){
     h+=pend.slice(0,40).map(t=>{
       const lista=(t.v>0?CATS_ENTRADA:CATS_SAIDA).slice().sort((a,b)=>(b===t.cat)-(a===t.cat));
       const cs=t.cat==='contas'?contasDoMes(mesDe(t.d)):[];
-      return`<div class="rv"><div class="h"><b>${esc(t.desc)}</b><span class="num ${t.v>0?'pos':''}" style="font-size:17px">${t.v>0?'+':'−'}${brl(Math.abs(t.v)).replace('−','')}</span></div><div class="meta">${diaLabel(t.d)}${t.src==='import'?(t.fonte==='cartao'?' · fatura do cartão':' · extrato do débito'):''}</div>
+      return`<div class="rv"><div class="h"><b>${esc(t.desc)}</b><span class="num ${t.v>0?'pos':''}" style="font-size:15px">${t.v>0?'+':'−'}${brl(Math.abs(t.v)).replace('−','')}</span></div><div class="meta">${diaLabel(t.d)}${t.src==='import'?(t.fonte==='cartao'?' · fatura do cartão':' · extrato do débito'):''}</div>
       <div class="chips">${lista.map(c=>`<button class="chip ${t.cat===c?'on':''}" data-a="rvCat" data-id="${t.id}" data-c="${c}"><i style="background:${CAT[c].c}"></i>${CAT[c].n}</button>`).join('')}</div>
       ${cs.length?`<div class="chips">${cs.map(c=>`<button class="chip ${t.conta===c.id?'on':''}" data-a="rvConta" data-id="${t.id}" data-c="${c.id}">${esc(c.nome)}</button>`).join('')}</div>`:''}
       <div class="row" style="margin-top:10px"><button class="b sm pri" data-a="rvOk" data-id="${t.id}">Confirmar</button><button class="b sm" data-a="edit" data-id="${t.id}">Editar</button><button class="b sm" data-a="rvSinal" data-id="${t.id}">${t.v>0?'É saída':'É entrada'}</button></div></div>`}).join('');
     h+=`<button class="b pri full" data-a="rvTodos" style="margin-top:14px">Confirmar todos (${pend.length})</button></div>`;
   }
-  h+=`<div class="grid g2" style="margin-bottom:14px"><div class="card" style="margin:0;padding:16px 18px"><div class="lbl">Entrou</div><div class="num pos" style="font-size:25px;margin-top:6px">${brl0(entrou)}</div></div><div class="card" style="margin:0;padding:16px 18px"><div class="lbl">Saiu</div><div class="num" style="font-size:25px;margin-top:6px">${brl0(saiu)}</div></div></div>`;
-  h+=`<div class="row" style="margin-bottom:6px"><button class="b sm pri" data-a="importar">Importar extrato</button><button class="b sm" data-a="add">Dinheiro vivo</button><div class="chips fl">${[['todos','Todos'],['debito','Débito'],['cartao','Crédito']].map(([f,n])=>`<button class="chip ${EF===f?'on':''}" data-a="ef" data-f="${f}" style="min-height:38px;padding:0 15px">${n}</button>`).join('')}</div></div>`;
+  h+=`<div class="grid g2" style="margin-bottom:14px"><div class="card" style="margin:0;padding:16px 18px"><div class="lbl">Entrou</div><div class="num pos" style="font-size:19px;margin-top:5px">${brl0(entrou)}</div></div><div class="card" style="margin:0;padding:16px 18px"><div class="lbl">Saiu</div><div class="num" style="font-size:19px;margin-top:5px">${brl0(saiu)}</div></div></div>`;
+  h+=`<div class="row" style="margin-bottom:6px"><button class="b sm pri" data-a="importar">Importar extrato</button><button class="b sm" data-a="add">Dinheiro vivo</button><div class="chips fl">${[['todos','Todos'],['debito','Débito'],['cartao','Crédito']].map(([f,n])=>`<button class="chip ${EF===f?'on':''}" data-a="ef" data-f="${f}">${n}</button>`).join('')}</div></div>`;
   h+=`<div class="card" style="padding:4px 18px;margin-top:12px">${[['debito','Débito'],['cartao','Cartão']].map(([f,n])=>{const u=ultImp(f);return`<div class="it" style="cursor:default"><span class="ic"><svg viewBox="0 0 24 24" style="stroke:${f==='debito'?'var(--blue)':'#a77bff'}"><path d="M5 8h14M5 12h14M5 16h9"/></svg></span><div class="t"><b>Extrato do ${n.toLowerCase()}</b><span>${u?(u.ate?'até '+dm(u.ate)+' · ':'')+'enviado '+relDia(u.em):'ainda não enviado'}</span></div></div>`}).join('')}</div>`;
   if(!txs.length)h+=`<div class="card empty">Nenhum lançamento em ${nomeMes(VM)}${EF!=='todos'?' neste filtro':''}.</div>`;
   else{
