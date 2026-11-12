@@ -334,7 +334,7 @@ const $=s=>document.querySelector(s);
 const LS='saveon:v1',LA='saveon:auth',LT='saveon:tema',LP='saveon:pdfpw';
 let IMPF='debito';
 const LC='saveon:conta';
-const VERSAO='v7';
+const VERSAO='v8';
 const API=(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:8788':'https://saveon.igordejesusp.workers.dev';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brl=v=>(v<0?'−':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -653,6 +653,8 @@ function rExtrato(){
   h+=`<div class="grid g2" style="margin-bottom:14px"><div class="card" style="margin:0;padding:16px 18px"><div class="lbl">Entrou</div><div class="num pos" style="font-size:19px;margin-top:5px">${brl0(entrou)}</div></div><div class="card" style="margin:0;padding:16px 18px"><div class="lbl">Saiu</div><div class="num" style="font-size:19px;margin-top:5px">${brl0(saiu)}</div></div></div>`;
   h+=`<div class="row" style="margin-bottom:6px"><button class="b sm pri" data-a="importar">Importar extrato</button><button class="b sm" data-a="add">Dinheiro vivo</button><div class="chips fl">${[['todos','Todos'],['debito','Débito'],['cartao','Crédito']].map(([f,n])=>`<button class="chip ${EF===f?'on':''}" data-a="ef" data-f="${f}">${n}</button>`).join('')}</div></div>`;
   h+=`<div class="card" style="padding:4px 18px;margin-top:12px">${[['debito','Débito'],['cartao','Cartão']].map(([f,n])=>{const u=ultImp(f);return`<div class="it" style="cursor:default"><span class="ic"><svg viewBox="0 0 24 24" style="stroke:${f==='debito'?'var(--blue)':'#a77bff'}"><path d="M5 8h14M5 12h14M5 16h9"/></svg></span><div class="t"><b>Extrato do ${n.toLowerCase()}</b><span>${u?(u.ate?'até '+dm(u.ate)+' · ':'')+'enviado '+relDia(u.em):'ainda não enviado'}</span></div></div>`}).join('')}</div>`;
+  {const ult=(S.imports||[]).filter(x=>x.id).sort((a,b)=>b.em-a.em).slice(0,4);const nImp=S.tx.filter(t=>t.src==='import').length;
+  if(ult.length||nImp)h+=`<div class="card" style="padding:4px 18px;margin-top:8px">${ult.map(u=>`<div class="it" style="cursor:default"><div class="t"><b>${u.fonte==='cartao'?'Cartão':'Débito'} · ${u.n} lançamentos</b><span>${u.de?dm(u.de)+' a '+dm(u.ate)+' · ':''}enviado ${relDia(u.em)}</span></div><button class="b" data-a="desfazImp" data-id="${u.id}" style="min-height:34px;padding:0 12px;font-size:13px">Desfazer</button></div>`).join('')}${nImp?`<div class="it" style="cursor:default"><div class="t"><span>${nImp} lançamentos vieram de extratos</span></div><button class="b" data-a="limpaImp" style="min-height:34px;padding:0 12px;font-size:13px">Apagar todos</button></div>`:''}</div>`}
   if(!txs.length)h+=`<div class="card empty">Nenhum lançamento em ${nomeMes(VM)}${EF!=='todos'?' neste filtro':''}.</div>`;
   else{
     const dias={};txs.forEach(t=>(dias[t.d]=dias[t.d]||[]).push(t));
@@ -801,6 +803,8 @@ const A={
     else S.tx.push({id:uid(),d:F.d,v,cat:F.cat,desc:F.desc,conta:F.conta||undefined,src:'manual',ok:true,ts:Date.now()});
     fecha();save();toast('Salvo');
   },
+  desfazImp(d){const ts=S.tx.filter(t=>t.imp===d.id);if(!confirm(`Desfazer esta importação? Vão sair ${ts.length} lançamentos.`))return;S.del=(S.del||[]).concat(ts.map(t=>t.id));S.tx=S.tx.filter(t=>t.imp!==d.id);S.imports=S.imports.filter(i=>i.id!==d.id);save();toast('Importação desfeita')},
+  limpaImp(){const ts=S.tx.filter(t=>t.src==='import');if(!confirm(`Apagar os ${ts.length} lançamentos que vieram de extratos? Os lançamentos que você fez à mão ficam.`))return;S.del=(S.del||[]).concat(ts.map(t=>t.id));S.tx=S.tx.filter(t=>t.src!=='import');S.imports=[];save();toast('Lançamentos de extratos apagados')},
   fApagar(){if(!confirm('Apagar este lançamento?'))return;(S.del=S.del||[]).push(F.id);S.tx=S.tx.filter(x=>x.id!==F.id);fecha();save()},
   pagar(d){
     const c=contasDoMes(mesDe(hoje())).find(x=>x.id===d.id);if(!c)return;
@@ -907,7 +911,7 @@ function autoCat(desc,v,fonte){
   if(r)return{cat:r.cat,conta:r.conta,firme:true};
   if(ehMeuDesc(n)||/ CONTA INVESTIMENTO | ENTRE CONTAS /.test(n))return{cat:'interna',firme:true};
   if(v>0){const i=/RESGATE|ESTORNO/.test(n)||(fonte==='cartao'&&/PAGAMENTO|PAGTO|CREDITO/.test(n));return{cat:i?'interna':'entrada',firme:i}}
-  if(fonte!=='cartao'&&/FATURA| BANCO C /.test(n))return{cat:'interna',conta:S.contas.some(c=>c.id==='cartao')?'cartao':undefined,firme:true};
+  if(fonte!=='cartao'&&/FATURA| BANCO C | PGTO FAT | PAGTO FAT /.test(n))return{cat:'interna',conta:S.contas.some(c=>c.id==='cartao')?'cartao':undefined,firme:true};
   for(const[k,c]of REGRAS_BASE)if(n.includes(k))return{cat:c,conta:c==='contas'?dicaConta({desc}):undefined,firme:true};
   return{cat:'outros'};
 }
@@ -923,8 +927,9 @@ $('#fImp').addEventListener('change',async e=>{
     if(nm.endsWith('.pdf')||f.type==='application/pdf')lin=await lerPDF(f,IMPF);
     else{const txt=await lerTexto(f);lin=/<STMTTRN>/i.test(txt)?lerOFX(txt):lerCSV(txt,IMPF)}
     if(!lin.length){toast('Não achei lançamentos nesse arquivo');return}
+    if(lin.conf&&!lin.conf.ok&&!confirm('Os totais não batem com o que o PDF informa.\n\n'+lin.conf.txt+'\n\nImportar mesmo assim?'))return;
     const r=juntar(lin,IMPF);fecha();save();
-    toast(`${IMPF==='cartao'?'Cartão':'Débito'}: ${r.novos} novos${r.novos?` · ${r.auto} já classificados${r.duvida?` · ${r.duvida} para você conferir`:''}`:''}${r.rep?' · '+r.rep+' já estavam':''}`);
+    toast((lin.conf&&lin.conf.ok?'Totais conferem ✓ · ':'')+`${IMPF==='cartao'?'Cartão':'Débito'}: ${r.novos} novos${r.novos?` · ${r.auto} já classificados${r.duvida?` · ${r.duvida} para você conferir`:''}`:''}${r.rep?' · '+r.rep+' já estavam':''}`);
     if(r.duvida)A.irRevisar();else A.tab({t:'hoje'});
   }catch(err){console.error(err);toast('Não consegui ler: '+(err.message||err))}
 });
@@ -1011,12 +1016,65 @@ async function lerPDF(f,fonte){
   const linhas=[];
   for(let p=1;p<=pdf.numPages;p++){
     const pg=await pdf.getPage(p);const tc=await pg.getTextContent();
-    const g={};tc.items.forEach(it=>{if(!it.str.trim())return;const y=Math.round(it.transform[5]/3);(g[y]=g[y]||[]).push(it)});
-    Object.keys(g).sort((a,b)=>b-a).forEach(y=>linhas.push(g[y].sort((a,b)=>a.transform[4]-b.transform[4]).map(i=>i.str.trim()).join(' ')));
+    const its=tc.items.filter(it=>it.str.trim()).sort((a,b)=>b.transform[5]-a.transform[5]||a.transform[4]-b.transform[4]);
+    let cur=[],y0=null;
+    const fecha1=()=>{if(cur.length)linhas.push(cur.sort((a,b)=>a.transform[4]-b.transform[4]).map(i=>i.str.trim()).join(' '));cur=[]};
+    for(const it of its){if(y0===null||y0-it.transform[5]>3){fecha1();y0=it.transform[5]}cur.push(it)}
+    fecha1();
   }
   return lerLinhas(linhas,fonte);
 }
+const reMoeda='(\\d{1,3}(?:\\.\\d{3})*,\\d{2})';
+const paraNum=x=>parseFloat(x.replace(/\./g,'').replace(',','.'));
+/* Leitor exato dos PDFs do C6: extrato da conta (duas datas, Tipo, Descrição, Valor) e fatura do cartão (dd mês, descrição, valor).
+   Só lê linhas que têm exatamente esse formato; cabeçalhos, saldos, opções de pagamento e parcelamento ficam de fora. */
+function lerC6(linhas,fonte){
+  const txt=linhas.join('\n');
+  const MES={jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
+  const anos=[...txt.matchAll(/\b\d{1,2}\/\d{1,2}\/(20\d{2})\b/g)].map(m=>+m[1]);
+  const per=txt.match(/(\d{2})\/(\d{2})\/(20\d{2})\s*(?:a|-|até)\s*(\d{2})\/(\d{2})\/(20\d{2})/);
+  const venc=txt.match(/Vencimento:?\s*(\d{2})\/(\d{2})\/(20\d{2})/)||txt.match(/Vencimento:?\s*\d{1,2}\s+de\s+([A-Za-zçÇ]+)/);
+  let fimM,fimA;
+  if(per){fimM=+per[5];fimA=+per[6]}
+  else if(venc&&venc[3]){fimM=+venc[2];fimA=+venc[3]}
+  else if(venc){fimM=MES[norm(venc[1]).slice(0,3).toLowerCase()]||12;fimA=anos.length?Math.max(...anos):new Date().getFullYear()}
+  else{fimM=12;fimA=anos.length?Math.max(...anos):new Date().getFullYear()}
+  const dat=(m,dd)=>`${m>fimM?fimA-1:fimA}-${String(m).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+  const out=[];let somaE=0,somaS=0,somaCompras=0;
+  const reDeb=new RegExp('^(\\d{2})\\/(\\d{2})\\s+\\d{2}\\/\\d{2}\\s+(.+?)\\s+(-|−)?\\s*R\\$\\s*(-|−)?\\s*'+reMoeda+'\\s*$');
+  const reCar=new RegExp('^(\\d{1,2})\\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\\.?\\s+(.+?)\\s+(-)?\\s*(?:R\\$\\s*)?'+reMoeda+'\\s*$','i');
+  for(let l of linhas){
+    l=l.replace(/^[^\p{L}\p{N}-]+/u,'').replace(/\s+/g,' ').trim();
+    let m=l.match(reDeb);
+    if(m){
+      const desc=m[3];if(/^SALDO/.test(norm(desc)))continue;
+      let v=paraNum(m[6]);if(m[4]||m[5])v=-v;
+      out.push({d:dat(+m[2],+m[1]),v,desc});if(v>0)somaE+=v;else somaS+=-v;continue;
+    }
+    m=l.match(reCar);
+    if(m){
+      const desc=m[3].replace(/\s+/g,' ').trim(),D=norm(desc);
+      if(/^SUBTOTAL|^TOTAL/.test(D))continue;
+      let v=paraNum(m[5]);
+      const cred=!!m[4]||/PAGAMENTO|ESTORNO|CREDITO|DEVOLU/.test(D);
+      if(cred)v=Math.abs(v);else{v=-Math.abs(v);somaCompras+=-v}
+      out.push({d:dat(MES[m[2].toLowerCase()],+m[1]),v,desc});
+    }
+  }
+  /* conferência com os totais que o próprio PDF informa */
+  let conf=null;
+  if(out.length){
+    let E=0,S2=0,achou=false;
+    for(const l of linhas){const m=l.match(new RegExp('Entradas:?\\s*R\\$\\s*'+reMoeda+'.*?Sa[ií]das:?\\s*R\\$\\s*'+reMoeda,'i'));if(m){achou=true;E+=paraNum(m[1]);S2+=paraNum(m[2])}}
+    if(achou)conf={ok:Math.abs(E-somaE)<.015&&Math.abs(S2-somaS)<.015,txt:`Extrato diz: entrou ${brl(E)} e saiu ${brl(S2)}. Li: entrou ${brl(somaE)} e saiu ${brl(somaS)}.`};
+    else{let sub=0,ach=false;for(const l of linhas){const m=l.match(new RegExp('Subtotal deste cart[aã]o\\s*R\\$\\s*'+reMoeda,'i'));if(m){ach=true;sub+=paraNum(m[1])}}
+      if(ach)conf={ok:Math.abs(sub-somaCompras)<.015,txt:`A fatura soma ${brl(sub)} em compras. Li ${brl(somaCompras)}.`}}
+  }
+  out.conf=conf;
+  return out;
+}
 function lerLinhas(linhas,fonte){
+  const c6=lerC6(linhas,fonte);if(c6.length>=2)return c6;
   const txt=linhas.join('\n');
   const ano=(txt.match(/\b\d{1,2}\/\d{1,2}\/(20\d{2})\b/)||txt.match(/\b(20\d{2})\b/)||[])[1];
   const MES={JAN:1,FEV:2,MAR:3,ABR:4,MAI:5,JUN:6,JUL:7,AGO:8,SET:9,OUT:10,NOV:11,DEZ:12};
@@ -1053,7 +1111,7 @@ function juntar(lin,fonte){
   const fids=new Set(S.tx.filter(t=>t.fid).map(t=>t.fid));
   const tem={};S.tx.forEach(t=>{tem[sig(t)]=(tem[sig(t)]||0)+1});
   const vistos={};
-  let novos=0,rep=0,merge=0,auto=0,duvida=0,de='9999',ate='0000';
+  let novos=0,rep=0,merge=0,auto=0,duvida=0,de='9999',ate='0000';const impId=uid();
   for(const x of lin){
     if(x.d<de)de=x.d;if(x.d>ate)ate=x.d;
     const sg=sig(x);vistos[sg]=(vistos[sg]||0)+1;
@@ -1063,10 +1121,10 @@ function juntar(lin,fonte){
     const man=S.tx.find(t=>t.src==='manual'&&!t.casado&&Math.abs(t.v-x.v)<.01&&Math.abs(new Date(t.d+'T12:00')-dx)<=2.5*864e5);
     if(man){man.casado=true;man.fid=x.fid;man.desc=man.desc||x.desc;man.descBanco=x.desc;merge++;continue}
     const a=autoCat(x.desc,x.v,fonte);
-    S.tx.push({id:uid(),d:x.d,v:x.v,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',fonte,ok:!!a.firme,ts:Date.now()});
+    S.tx.push({id:uid(),d:x.d,v:x.v,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',imp:impId,fonte,ok:!!a.firme,ts:Date.now()});
     novos++;a.firme?auto++:duvida++;
   }
-  (S.imports=S.imports||[]).push({em:Date.now(),fonte,n:novos,de:lin.length?de:null,ate:lin.length?ate:null});
+  (S.imports=S.imports||[]).push({id:impId,em:Date.now(),fonte,n:novos,de:lin.length?de:null,ate:lin.length?ate:null});
   S.imports=S.imports.slice(-60);
   return{novos,rep,merge,auto,duvida};
 }
