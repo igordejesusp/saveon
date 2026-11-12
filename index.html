@@ -198,6 +198,14 @@ svg text{font-family:var(--f)}
 #lock form{width:100%;max-width:320px;display:flex;flex-direction:column;gap:10px}
 #lock .err{color:var(--bad);font-size:13px;min-height:18px}
 
+.dots{display:flex;gap:14px;justify-content:center;margin:6px 0 26px}
+.dots i{width:15px;height:15px;border-radius:50%;background:var(--cell2);transition:.12s}
+.dots i.on{background:var(--blue);transform:scale(1.12)}
+.dots.err i{background:var(--red)}
+.pad{display:grid;grid-template-columns:repeat(3,76px);gap:14px 22px;justify-content:center;margin:0 auto}
+.pad button{width:76px;height:76px;border-radius:50%;border:0;background:var(--cell);color:var(--hi);font-size:28px;font-weight:600;font-family:var(--r)}
+.pad button:active{background:var(--cell2)}
+.pad span{width:76px;height:76px}
 #toast{position:absolute;left:50%;bottom:calc(98px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);background:var(--hi);color:var(--bg);padding:12px 18px;border-radius:16px;font-size:14px;font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:60;max-width:calc(100% - 32px);text-align:center}
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .empty{text-align:center;padding:28px 10px;color:var(--dim);font-size:14px;line-height:1.5}
@@ -253,6 +261,7 @@ const $=s=>document.querySelector(s);
 const LS='saveon:v1',LA='saveon:auth',LT='saveon:tema',LP='saveon:pdfpw';
 let IMPF='debito';
 const LC='saveon:conta';
+const VERSAO='v6';
 const API=(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:8788':'https://saveon.igordejesusp.workers.dev';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brl=v=>(v<0?'−':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -758,13 +767,17 @@ const A={
       <div class="meta" style="margin:8px 0 10px">${C?.em?'Último envio às '+new Date(C.em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'. ':''}Seus dados ficam criptografados no servidor: só a sua senha abre. Se esquecer a senha, não dá para recuperar.</div>
       <div class="row"><button class="b sm pri" data-a="sincronizar">Sincronizar agora</button><button class="b sm" data-a="sair">Sair da conta</button></div></div>
     <div class="sec">Segurança</div>
-    <div class="card"><div class="row" style="justify-content:space-between"><span>Face ID / Touch ID</span><span class="pill ${au&&au.cred?'ok':''}">${au&&au.cred?'ligado':'desligado'}</span></div>
-      <div class="row" style="margin-top:10px">${au&&au.cred?'<button class="b sm" data-a="bioOff">Desligar</button>':'<button class="b sm pri" data-a="bioOn">Ligar Face ID</button>'}<button class="b sm" data-a="bloquear">Bloquear agora</button></div></div>
+    <div class="card"><div class="row" style="justify-content:space-between"><span>Código de 6 números</span><span class="pill ${au&&au.pin?'ok':''}">${au&&au.pin?'ligado':'desligado'}</span></div>
+      <div class="meta" style="margin:8px 0 10px">Abre o app sem digitar a senha da conta. Depois de 5 erros, o app volta a pedir a senha.</div>
+      <div class="row">${au&&au.pin?'<button class="b sm pri" data-a="pinCriar">Trocar código</button><button class="b sm" data-a="pinOff">Desligar</button>':'<button class="b sm pri" data-a="pinCriar">Criar código</button>'}<button class="b sm" data-a="bloquear">Bloquear agora</button></div>
+      <div class="row" style="justify-content:space-between;margin-top:18px"><span>Face ID / Touch ID</span><span class="pill ${au&&au.cred?'ok':''}">${au&&au.cred?'ligado':'desligado'}</span></div>
+      <div class="meta" style="margin:8px 0 10px">No iPhone, o iOS não deixa apps instalados pela tela de início usarem o Face ID. No Mac (Touch ID) pode funcionar.</div>
+      <div class="row">${au&&au.cred?'<button class="b sm" data-a="bioOff">Desligar</button>':'<button class="b sm" data-a="bioOn">Tentar ligar</button>'}</div></div>
     <div class="sec">Seus dados</div>
     <div class="card"><div class="meta" style="margin-bottom:10px">Seus dados já ficam na nuvem. Esta cópia em arquivo é um backup extra, se você quiser.</div>
       <div class="row"><button class="b sm" data-a="exportar">Salvar cópia</button><button class="b sm" data-a="importBak">Abrir cópia ou plano</button></div>
       <button class="b sm red" data-a="zerar" style="margin-top:14px">Apagar tudo</button></div>
-    <div class="meta" style="text-align:center;margin-top:14px">SaveOn · v1 · ${S.tx.length} lançamentos</div>`);
+    <div class="meta" style="text-align:center;margin-top:14px">SaveOn · ${VERSAO} · ${S.tx.length} lançamentos</div>`);
   },
   exportar(){
     const blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});
@@ -776,6 +789,8 @@ const A={
   zerar(){if(prompt('Isto apaga todos os lançamentos e o plano deste aparelho. Para confirmar, digite APAGAR')==='APAGAR'){{const ids=S.tx.map(t=>t.id).concat(S.del||[]);S=VAZIO();S.del=ids;}fecha();save();toast('Tudo apagado')}},
   bloquear(){fecha();trava()},
   async bioOn(){try{await bioCriar();toast('Face ID ligado');A.config()}catch(e){toast('Não deu para ligar: '+(e.message||e))}},
+  pinCriar(){fecha();telaPinCriar('config')},
+  pinOff(){const a=auth();delete a.pin;delete a.pinErros;localStorage.setItem(LA,JSON.stringify(a));A.config();toast('Código desligado')},
   bioOff(){const a=auth();delete a.cred;localStorage.setItem(LA,JSON.stringify(a));A.config()},
   async sincronizar(){toast('Sincronizando…');await empurra();await puxa();A.config();toast(C&&!C.sujo&&!C.expirou?'Tudo salvo na nuvem':'Não deu para sincronizar')},
   async sair(){
@@ -1038,22 +1053,59 @@ function telaConta(modo,emailPre){
       localStorage.setItem(LA,JSON.stringify({salt,hash:await hashSenha(pw,salt)}));
       $('#cbt').textContent='Carregando seus dados…';
       await puxa();
-      if(await bioDisp())telaBioOferta();else libera();
+      telaPinCriar('oferta');
     }catch(x){console.warn(x);err('Sem conexão com o servidor. Tente de novo.')}
   };
   setTimeout(()=>$('#c1').value?$('#c2').focus():$('#c1').focus(),200);
 }
-function telaBioOferta(){
-  $('#lockc').innerHTML=`<h1>Ligar Face ID?</h1><p>Para abrir o app só olhando para o celular (ou com o dedo no Mac).</p><form onsubmit="return false"><button type="button" class="b pri" id="bOn">Ligar Face ID</button><button type="button" class="b" id="bNo">Agora não</button><div class="err" id="serr"></div></form>`;
-  $('#bOn').onclick=async()=>{try{await bioCriar();libera();toast('Face ID ligado')}catch(e){$('#serr').textContent='Não deu: '+(e.message||e)}};
-  $('#bNo').onclick=libera;
+let PADFN=null;
+function padHTML(){return`<div class="dots" id="pdots">${'<i></i>'.repeat(6)}</div><div class="pad">${[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map(k=>k===''?'<span></span>':`<button type="button" data-k="${k}">${k}</button>`).join('')}</div>`}
+function padLiga(onDone){
+  let v='';const dots=()=>document.querySelectorAll('#pdots i').forEach((e,i)=>e.classList.toggle('on',i<v.length));
+  const press=k=>{
+    if(k==='⌫'||k==='Backspace'){v=v.slice(0,-1);dots();return}
+    if(!/^\d$/.test(k)||v.length>=6)return;
+    v+=k;dots();
+    if(v.length===6){const x=v;PADFN=null;setTimeout(()=>onDone(x),140)}
+  };
+  PADFN=press;
+  document.querySelector('.pad').onclick=e=>{const b=e.target.closest('button');if(b&&PADFN)PADFN(b.dataset.k)};
+  return{reset(erro){v='';PADFN=press;const d=$('#pdots');if(!d)return;if(erro){d.classList.add('err');setTimeout(()=>{d.classList.remove('err');dots()},450)}else dots()}};
 }
-async function telaEntrar(){
-  const a=auth();$('#lock').classList.add('on');
+document.addEventListener('keydown',e=>{if(PADFN&&(/^\d$/.test(e.key)||e.key==='Backspace'))PADFN(e.key)});
+function telaPinCriar(modo,primeiro){
+  $('#lock').classList.add('on');
+  $('#lockc').innerHTML=`<h1>${primeiro?'Repita o código':'Crie seu código'}</h1><p>${primeiro?'Digite o mesmo código mais uma vez.':'6 números para abrir o app sem digitar a senha toda vez.'}</p>${padHTML()}<div class="err" id="perr" style="margin:16px 0 8px;min-height:18px"></div><button type="button" class="b" id="pno">${modo==='oferta'?'Agora não':'Cancelar'}</button>`;
+  $('#pno').onclick=()=>{PADFN=null;modo==='oferta'?libera():$('#lock').classList.remove('on')};
+  padLiga(async x=>{
+    if(!primeiro){telaPinCriar(modo,x);return}
+    if(x!==primeiro){$('#perr').textContent='Os códigos não são iguais. Vamos de novo.';setTimeout(()=>telaPinCriar(modo),900);return}
+    const salt=b64e(crypto.getRandomValues(new Uint8Array(16)));const a=auth()||{};
+    a.pin={salt,hash:await hashSenha(x,salt)};a.pinErros=0;localStorage.setItem(LA,JSON.stringify(a));
+    if(modo==='oferta')libera();else $('#lock').classList.remove('on');
+    toast('Código criado');
+  });
+}
+function telaPin(){
+  $('#lock').classList.add('on');
+  $('#lockc').innerHTML=`<h1>SaveOn</h1><p>Digite seu código.</p>${padHTML()}<div class="err" id="perr" style="margin:16px 0 8px;min-height:18px"></div><button type="button" class="b" id="psen">Usar a senha da conta</button>`;
+  $('#psen').onclick=()=>{PADFN=null;telaSenhaEntrar()};
+  const pad=padLiga(async x=>{
+    const a=auth(),h=await hashSenha(x,a.pin.salt);
+    if(h===a.pin.hash){a.pinErros=0;localStorage.setItem(LA,JSON.stringify(a));PADFN=null;libera();return}
+    a.pinErros=(a.pinErros||0)+1;localStorage.setItem(LA,JSON.stringify(a));
+    if(a.pinErros>=5){telaSenhaEntrar('Código errado 5 vezes. Entre com a senha da conta.');return}
+    $('#perr').textContent='Código errado ('+a.pinErros+' de 5)';pad.reset(true);
+  });
+}
+function telaEntrar(){const a=auth();if(a&&a.pin&&(a.pinErros||0)<5)telaPin();else telaSenhaEntrar()}
+async function telaSenhaEntrar(msg){
+  const a=auth();PADFN=null;$('#lock').classList.add('on');
   const bio=a.cred&&await bioDisp();
-  $('#lockc').innerHTML=`<h1>SaveOn</h1><p>Digite a senha da sua conta.</p><form id="fe">${bio?'<button type="button" class="b pri" id="bBio">Entrar com Face ID</button>':''}<input class="inp" type="password" id="e1" placeholder="Senha" autocomplete="current-password"><div class="err" id="eerr"></div><button class="b ${bio?'':'pri'}">Entrar com senha</button></form>`;
+  $('#lockc').innerHTML=`<h1>SaveOn</h1><p>Digite a senha da sua conta.</p><form id="fe">${bio?'<button type="button" class="b pri" id="bBio">Entrar com Face ID</button>':''}<input class="inp" type="password" id="e1" placeholder="Senha" autocomplete="current-password"><div class="err" id="eerr">${esc(msg||'')}</div><button class="b ${bio?'':'pri'}">Entrar com senha</button>${a.pin?'<button type="button" class="b" id="bpin">Voltar ao código</button>':''}</form>`;
   if(bio)$('#bBio').onclick=()=>bioEntrar().catch(()=>{$('#eerr').textContent='Face ID cancelado. Use a senha.'});
-  $('#fe').onsubmit=async e=>{e.preventDefault();const h=await hashSenha($('#e1').value,a.salt);if(h===a.hash)libera();else{$('#eerr').textContent='Senha errada';$('#e1').value=''}};
+  if(a.pin&&$('#bpin'))$('#bpin').onclick=()=>{a.pinErros=0;localStorage.setItem(LA,JSON.stringify(a));telaPin()};
+  $('#fe').onsubmit=async e=>{e.preventDefault();const h=await hashSenha($('#e1').value,a.salt);if(h===a.hash){const b=auth();if(b.pin){b.pinErros=0;localStorage.setItem(LA,JSON.stringify(b))}libera()}else{$('#eerr').textContent='Senha errada';$('#e1').value=''}};
 }
 let saiu=0;
 document.addEventListener('visibilitychange',()=>{if(document.hidden)saiu=Date.now();else{if(saiu&&Date.now()-saiu>5*60e3&&auth()?.hash)trava();else{render();if(C&&sessionStorage.getItem('saveon:ok'))puxa()}}});
@@ -1068,7 +1120,14 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)saiu=Date.n
   else if(sessionStorage.getItem('saveon:ok')){render();puxa()}
   else telaEntrar();
   render();
-  if('serviceWorker'in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('sw.js').catch(()=>{});
+  if('serviceWorker'in navigator&&location.protocol!=='file:'){
+    const tinha=!!navigator.serviceWorker.controller;let rec=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{if(tinha&&!rec&&!$('#sheet').classList.contains('on')){rec=true;location.reload()}});
+    navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{
+      reg.update().catch(()=>{});
+      document.addEventListener('visibilitychange',()=>{if(!document.hidden)reg.update().catch(()=>{})});
+    }).catch(()=>{});
+  }
 })();
 </script>
 </body>
