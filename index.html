@@ -203,7 +203,7 @@ svg text{font-family:var(--f)}
 <nav id="tabbar">
   <button data-a="tab" data-t="hoje" class="on"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg>Hoje</button>
   <button data-a="tab" data-t="extrato"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>Extrato<span class="bdg" id="bdg" hidden></span></button>
-  <button class="plus" data-a="add" aria-label="Lançar gasto"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button class="plus" data-a="importar" aria-label="Importar extrato"><svg viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></button>
   <button data-a="tab" data-t="graf"><svg viewBox="0 0 24 24"><path d="M5 20V11M12 20V4M19 20v-7"/></svg>Gráficos</button>
   <button data-a="tab" data-t="plano"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Plano</button>
 </nav>
@@ -236,6 +236,8 @@ const mesDe=ds=>ds.slice(0,7);
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 const soma=(a,f)=>a.reduce((s,x)=>s+(typeof f==='function'?f(x):x[f]||0),0);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const ultImp=f=>(S.imports||[]).filter(i=>i.fonte===f).sort((a,b)=>b.em-a.em)[0];
+const relDia=em=>{const d=Math.floor((Date.now()-em)/864e5);return d<=0?'hoje':d===1?'ontem':'há '+d+' dias'};
 const MESES=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 const nomeMes=m=>{const[y,mm]=m.split('-');return MESES[+mm-1]+' '+y};
 const addMes=(m,n)=>{const[y,mm]=m.split('-').map(Number);const d=new Date(y,mm-1+n,1);return iso(d).slice(0,7)};
@@ -295,7 +297,7 @@ const REGRAS_BASE=[
 const CONTA_HINT={CEMIG:'energia',ENERGIA:'energia',WELLHUB:'wellhub',GYMPASS:'wellhub',FATURA:'cartao',ALUGUEL:'aluguel',ALGAR:'internet'};
 
 /* ============ estado ============ */
-const VAZIO=()=>({v:1,rendas:[],varMes:{},contas:[],avulsos:[],metas:{mercado:800,variaveis:300,guardarPct:10},dividas:[],reserva:0,tx:[],regras:[],del:[],criado:hoje()});
+const VAZIO=()=>({v:1,rendas:[],varMes:{},contas:[],avulsos:[],metas:{mercado:800,variaveis:300,guardarPct:10},dividas:[],reserva:0,tx:[],regras:[],del:[],imports:[],criado:hoje()});
 let S;
 try{S=JSON.parse(localStorage.getItem(LS))}catch(e){S=null}
 if(!S||typeof S!=='object')S=VAZIO();
@@ -431,6 +433,7 @@ function alertas(k){
   const a=[];if(!k.mA)return a;
   const hr=new Date().getHours();
   if(k.pend)a.push([hr>=18?'warn':'',`Você tem <b>${k.pend}</b> lançamento${k.pend>1?'s':''} para revisar.`,'Revisar','irRevisar']);
+  for(const[f,nome]of[['debito','débito'],['cartao','cartão']]){const u=ultImp(f);if(u&&Date.now()-u.em>=6*864e5)a.push(['warn',`Faz <b>${Math.floor((Date.now()-u.em)/864e5)} dias</b> que você não envia o extrato do ${nome}.`,'Enviar','importar'])}
   const env=(nome,g,l)=>{if(l<=0)return;const p=g/l;if(p>=1)a.push(['bad',`${nome} estourou: gastou <b>${brl0(g)}</b> de ${brl0(l)}.`]);else if(p>=.8)a.push(['warn',`${nome} em <b>${Math.round(p*100)}%</b>: restam ${brl0(l-g)} até o fim do mês.`])};
   env('Mercado',k.gM,k.limM);env('Variáveis',k.gV,k.limV);
   const venc=[],logo=[];
@@ -497,7 +500,7 @@ function rHoje(k){
   <div class="sec" id="contasmes">Contas do mês <small>${pagas} de ${k.cs.length} pagas</small></div>
   <div class="card" style="padding:4px 14px">${pend.length?pend.map(c=>{const pg=pagoConta(c,k.m);const atr=c.dia&&c.dia<k.dHoje;return`<div class="it">${icon(c.cat)}<div class="t"><b>${esc(c.nome)}</b><span class="${atr?'bad':''}">${c.dia?'vence dia '+c.dia:c.av?'este mês':'ao longo do mês'}${pg>0?' · pago '+brl0(pg):''}</span></div><div class="v">${brl0(c.valor)}</div><button class="b sm" data-a="pagar" data-id="${c.id}">${c.cat==='contas'?'Paguei':'Lançar'}</button></div>`}).join(''):`<div class="empty">Tudo pago este mês. 👏</div>`}</div>
   <div class="sec">Últimos lançamentos <button class="lk" data-a="tab" data-t="extrato">Ver extrato</button></div>
-  <div class="card" style="padding:2px 14px">${ult.length?ult.map(txItem).join(''):`<div class="empty">Nada lançado ainda.<br>Toque no <b>+</b> ou importe o extrato do C6.</div>`}</div>
+  <div class="card" style="padding:2px 14px">${ult.length?ult.map(txItem).join(''):`<div class="empty">Nada por aqui ainda.<br>Toque no botão azul de baixo e envie o extrato do C6.</div>`}</div>
   <button class="b full" data-a="importar" style="margin-top:4px">Importar extrato do C6</button>
   </div></div>`;
 }
@@ -518,7 +521,8 @@ function rExtrato(){
     h+=`<button class="b pri full" data-a="rvTodos" style="margin-top:12px">Confirmar todos (${pend.length})</button></div>`;
   }
   h+=`<div class="grid g2" style="margin:${pend.length?'18px':'0'} 0 6px"><div class="card" style="margin:0"><div class="lbl">Entrou</div><div class="num pos" style="font-size:20px;margin-top:4px">${brl0(k.entrou)}</div></div><div class="card" style="margin:0"><div class="lbl">Saiu</div><div class="num" style="font-size:20px;margin-top:4px">${brl0(k.saiu)}</div></div></div>`;
-  h+=`<div class="row" style="margin:12px 0"><button class="b sm" data-a="importar">Importar extrato</button><button class="b sm" data-a="add">Lançar à mão</button></div>`;
+  h+=`<div class="row" style="margin:12px 0"><button class="b sm pri" data-a="importar">Importar extrato</button><button class="b sm" data-a="add" style="opacity:.7">Dinheiro vivo</button></div>`;
+  h+=`<div class="card" style="padding:4px 14px">${[['debito','Débito'],['cartao','Cartão']].map(([f,n])=>{const u=ultImp(f);return`<div class="it" style="cursor:default"><span class="ic" style="background:${f==='debito'?'var(--blue)':'#a77bff'}"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 12h14M5 16h9"/></svg></span><div class="t"><b>Extrato do ${n.toLowerCase()}</b><span>${u?(u.ate?'até '+dm(u.ate)+' · ':'')+'enviado '+relDia(u.em):'ainda não enviado'}</span></div></div>`}).join('')}</div>`;
   if(!txs.length)h+=`<div class="card empty">Nenhum lançamento em ${nomeMes(VM)}.</div>`;
   else{
     const dias={};txs.forEach(t=>(dias[t.d]=dias[t.d]||[]).push(t));
@@ -666,8 +670,8 @@ const A={
     const kk=chave(t.desc);if(kk)S.tx.forEach(o=>{if(!o.ok&&o!==t&&chave(o.desc)===kk&&(o.v>0)===(t.v>0)){o.cat=t.cat;o.conta=t.conta}});save()},
   rvConta(d){const t=S.tx.find(x=>x.id===d.id);if(!t)return;t.conta=d.c;aprender(t);save()},
   rvSinal(d){const t=S.tx.find(x=>x.id===d.id);if(!t)return;t.v=-t.v;t.cat=t.v>0?'entrada':autoCat(t.desc,t.v).cat;save()},
-  rvOk(d){const t=S.tx.find(x=>x.id===d.id);if(t){t.ok=true;save()}},
-  rvTodos(){S.tx.forEach(t=>t.ok=true);save();toast('Tudo confirmado')},
+  rvOk(d){const t=S.tx.find(x=>x.id===d.id);if(t){t.ok=true;aprender(t);save()}},
+  rvTodos(){S.tx.forEach(t=>{if(!t.ok){t.ok=true;aprender(t)}});save();toast('Tudo confirmado. O app aprendeu essas categorias.')},
   importar(){sheet(`<h3>Qual extrato?</h3><div class="meta" style="margin-bottom:14px">Mande um de cada vez. O do débito mostra o que saiu da conta (Pix, compras no débito). O do cartão mostra no que você gastou na fatura.</div>
     <button class="b pri full" data-a="impFonte" data-f="debito">Débito (conta do C6)</button>
     <button class="b full" data-a="impFonte" data-f="cartao" style="margin-top:10px">Cartão de crédito (fatura)</button>`)},
@@ -726,10 +730,10 @@ function dicaConta(t){const n=norm(t.desc);for(const[k,v]of Object.entries(CONTA
 function autoCat(desc,v,fonte){
   const n=' '+norm(desc)+' ',kk=chave(desc);
   const r=S.regras.find(r=>r.k&&(kk===r.k||n.includes(' '+r.k+' '))&&(r.s==null||r.s===(v>0)));
-  if(r)return{cat:r.cat,conta:r.conta};
-  if(v>0)return{cat:/RESGATE|ESTORNO/.test(n)||(fonte==='cartao'&&/PAGAMENTO|PAGTO|CREDITO/.test(n))?'interna':'entrada'};
-  if(fonte!=='cartao'&&/FATURA/.test(n))return{cat:'interna',conta:S.contas.some(c=>c.id==='cartao')?'cartao':undefined};
-  for(const[k,c]of REGRAS_BASE)if(n.includes(k))return{cat:c,conta:c==='contas'?dicaConta({desc}):undefined};
+  if(r)return{cat:r.cat,conta:r.conta,firme:true};
+  if(v>0){const i=/RESGATE|ESTORNO/.test(n)||(fonte==='cartao'&&/PAGAMENTO|PAGTO|CREDITO/.test(n));return{cat:i?'interna':'entrada',firme:i}}
+  if(fonte!=='cartao'&&/FATURA/.test(n))return{cat:'interna',conta:S.contas.some(c=>c.id==='cartao')?'cartao':undefined,firme:true};
+  for(const[k,c]of REGRAS_BASE)if(n.includes(k))return{cat:c,conta:c==='contas'?dicaConta({desc}):undefined,firme:true};
   return{cat:'outros'};
 }
 function aprender(t){const k=chave(t.desc);if(!k||k.length<3)return;S.regras=S.regras.filter(r=>!(r.k===k&&r.s===(t.v>0)));S.regras.unshift({k,cat:t.cat,conta:t.conta,s:t.v>0});S.regras=S.regras.slice(0,400)}
@@ -745,8 +749,8 @@ $('#fImp').addEventListener('change',async e=>{
     else{const txt=await lerTexto(f);lin=/<STMTTRN>/i.test(txt)?lerOFX(txt):lerCSV(txt,IMPF)}
     if(!lin.length){toast('Não achei lançamentos nesse arquivo');return}
     const r=juntar(lin,IMPF);fecha();save();
-    toast(`${IMPF==='cartao'?'Cartão: ':'Débito: '}${r.novos} novos${r.rep?' · '+r.rep+' já estavam':''}${r.merge?' · '+r.merge+' juntados com lançados à mão':''}`);
-    if(r.novos)A.irRevisar();
+    toast(`${IMPF==='cartao'?'Cartão':'Débito'}: ${r.novos} novos${r.novos?` · ${r.auto} já classificados${r.duvida?` · ${r.duvida} para você conferir`:''}`:''}${r.rep?' · '+r.rep+' já estavam':''}`);
+    if(r.duvida)A.irRevisar();else A.tab({t:'hoje'});
   }catch(err){console.error(err);toast('Não consegui ler: '+(err.message||err))}
 });
 async function lerTexto(f){const buf=await f.arrayBuffer();let t=new TextDecoder('utf-8').decode(buf);if(t.includes('�'))t=new TextDecoder('windows-1252').decode(buf);return t}
@@ -871,21 +875,25 @@ function lerLinhas(linhas,fonte){
 function juntar(lin,fonte){
   const sig=t=>t.d+'|'+t.v.toFixed(2)+'|'+norm(t.desc).slice(0,24);
   fonte=fonte||'debito';
-  const tem=new Set(S.tx.map(t=>t.fid||sig(t)));
-  let novos=0,rep=0,merge=0;
-  const vistos=new Set();
+  const fids=new Set(S.tx.filter(t=>t.fid).map(t=>t.fid));
+  const tem={};S.tx.forEach(t=>{tem[sig(t)]=(tem[sig(t)]||0)+1});
+  const vistos={};
+  let novos=0,rep=0,merge=0,auto=0,duvida=0,de='9999',ate='0000';
   for(const x of lin){
-    const s=x.fid||sig(x);
-    if(tem.has(s)||tem.has(sig(x))||vistos.has(s)){rep++;continue}
-    vistos.add(s);
+    if(x.d<de)de=x.d;if(x.d>ate)ate=x.d;
+    const sg=sig(x);vistos[sg]=(vistos[sg]||0)+1;
+    // mesma linha de um extrato anterior (os de 7 dias se sobrepõem); duas compras iguais no mesmo dia continuam valendo
+    if((x.fid&&fids.has(x.fid))||vistos[sg]<=(tem[sg]||0)){rep++;continue}
     const dx=new Date(x.d+'T12:00');
     const man=S.tx.find(t=>t.src==='manual'&&!t.casado&&Math.abs(t.v-x.v)<.01&&Math.abs(new Date(t.d+'T12:00')-dx)<=2.5*864e5);
     if(man){man.casado=true;man.fid=x.fid;man.desc=man.desc||x.desc;man.descBanco=x.desc;merge++;continue}
     const a=autoCat(x.desc,x.v,fonte);
-    S.tx.push({id:uid(),d:x.d,v:x.v,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',fonte,ok:false,ts:Date.now()});
-    novos++;
+    S.tx.push({id:uid(),d:x.d,v:x.v,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',fonte,ok:!!a.firme,ts:Date.now()});
+    novos++;a.firme?auto++:duvida++;
   }
-  return{novos,rep,merge};
+  (S.imports=S.imports||[]).push({em:Date.now(),fonte,n:novos,de:lin.length?de:null,ate:lin.length?ate:null});
+  S.imports=S.imports.slice(-60);
+  return{novos,rep,merge,auto,duvida};
 }
 
 /* cópia / plano */
