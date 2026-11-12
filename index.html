@@ -225,6 +225,8 @@ svg text{font-family:var(--f)}
 const $=s=>document.querySelector(s);
 const LS='saveon:v1',LA='saveon:auth',LT='saveon:tema',LP='saveon:pdfpw';
 let IMPF='debito';
+const LC='saveon:conta';
+const API=(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:8788':'https://saveon.igordejesusp.workers.dev';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brl=v=>(v<0?'−':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const brl0=v=>(v<0?'−':'')+'R$ '+Math.round(Math.abs(v)).toLocaleString('pt-BR');
@@ -293,12 +295,92 @@ const REGRAS_BASE=[
 const CONTA_HINT={CEMIG:'energia',ENERGIA:'energia',WELLHUB:'wellhub',GYMPASS:'wellhub',FATURA:'cartao',ALUGUEL:'aluguel',ALGAR:'internet'};
 
 /* ============ estado ============ */
-const VAZIO=()=>({v:1,rendas:[],varMes:{},contas:[],avulsos:[],metas:{mercado:800,variaveis:300,guardarPct:10},dividas:[],reserva:0,tx:[],regras:[],criado:hoje()});
+const VAZIO=()=>({v:1,rendas:[],varMes:{},contas:[],avulsos:[],metas:{mercado:800,variaveis:300,guardarPct:10},dividas:[],reserva:0,tx:[],regras:[],del:[],criado:hoje()});
 let S;
 try{S=JSON.parse(localStorage.getItem(LS))}catch(e){S=null}
 if(!S||typeof S!=='object')S=VAZIO();
 for(const[k,v]of Object.entries(VAZIO()))if(S[k]===undefined)S[k]=v;
-const save=()=>{try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){toast('Não consegui salvar no aparelho')}render()};
+let VER=0;
+const save=()=>{try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){toast('Não consegui salvar no aparelho')}VER++;if(C){C.sujo=true;saveC();agenda()}render()};
+const normS=o=>{for(const[k,v]of Object.entries(VAZIO()))if(o[k]===undefined)o[k]=v;return o};
+
+/* ============ conta e sincronização ============ */
+let C=null;try{C=JSON.parse(localStorage.getItem(LC))}catch(e){}
+const saveC=()=>{try{localStorage.setItem(LC,JSON.stringify(C))}catch(e){}};
+const sy={busy:false,t:null,msg:''};
+function status(m){sy.msg=m||'';const e=$('#sub');if(e)e.textContent=m||'controle financeiro'}
+const hexe=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+async function derivar(email,pw){
+  const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
+  const bits=new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode('saveon:'+email),iterations:310000,hash:'SHA-256'},k,512));
+  return{auth:hexe(bits.slice(0,32)),key:b64e(bits.slice(32))};
+}
+const chaveAES=async k=>crypto.subtle.importKey('raw',b64d(k),'AES-GCM',false,['encrypt','decrypt']);
+async function cifrar(obj,k){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},await chaveAES(k),new TextEncoder().encode(JSON.stringify(obj))));
+  const o=new Uint8Array(12+ct.length);o.set(iv);o.set(ct,12);
+  let bin='';for(let i=0;i<o.length;i+=8192)bin+=String.fromCharCode(...o.subarray(i,i+8192));
+  return btoa(bin);
+}
+async function decifrar(blob,k){
+  const o=b64d(blob);
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:o.slice(0,12)},await chaveAES(k),o.slice(12));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function api(rota,met,corpo,tok){
+  const h={'Content-Type':'application/json'};if(tok)h.Authorization='Bearer '+tok;
+  const r=await fetch(API+rota,{method:met,headers:h,body:corpo?JSON.stringify(corpo):undefined});
+  let j={};try{j=await r.json()}catch(e){}
+  return{ok:r.ok,st:r.status,j};
+}
+function mescla(L,R){
+  const del=new Set([...(L.del||[]),...(R.del||[])]);
+  const ids=new Set(L.tx.map(t=>t.id));
+  const tx=L.tx.concat((R.tx||[]).filter(t=>!ids.has(t.id))).filter(t=>!del.has(t.id));
+  const rk=new Set(L.regras.map(r=>r.k+'|'+r.s));
+  const regras=L.regras.concat((R.regras||[]).filter(r=>!rk.has(r.k+'|'+r.s)));
+  return normS({...R,...L,tx,regras,del:[...del].slice(-3000)});
+}
+function agenda(){clearTimeout(sy.t);sy.t=setTimeout(empurra,1200);status('salvando…')}
+function sessaoCaiu(){C.expirou=true;saveC();status('entre de novo');sessionStorage.removeItem('saveon:ok');telaConta('entrar')}
+async function empurra(){
+  if(!C||C.expirou)return;
+  if(sy.busy){agenda();return}
+  sy.busy=true;
+  try{
+    for(let i=0;i<4;i++){
+      const v0=VER,blob=await cifrar(S,C.key);
+      const r=await api('/dados','PUT',{base:C.rev,blob},C.token);
+      if(r.st===401){sessaoCaiu();return}
+      if(r.st===409){S=mescla(S,await decifrar(r.j.blob,C.key));C.rev=r.j.rev;try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}continue}
+      if(!r.ok)throw new Error(r.j.erro||'erro '+r.st);
+      C.rev=r.j.rev;C.sujo=VER!==v0;C.em=Date.now();saveC();
+      status(C.sujo?'salvando…':'');
+      if(C.sujo)agenda();
+      render();return;
+    }
+    throw new Error('conflito repetido');
+  }catch(e){status('sem conexão · salvo só no aparelho');console.warn(e)}
+  finally{sy.busy=false}
+}
+async function puxa(){
+  if(!C||C.expirou||sy.busy)return;
+  try{
+    const r=await api('/dados','GET',null,C.token);
+    if(r.st===401){sessaoCaiu();return}
+    if(!r.ok)throw new Error(r.j.erro||'erro');
+    if(r.j.rev>C.rev&&r.j.blob){
+      const rem=await decifrar(r.j.blob,C.key);
+      S=C.sujo?mescla(S,rem):normS(rem);
+      C.rev=r.j.rev;saveC();try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}
+      render();
+    }else if(r.j.rev>C.rev)C.rev=r.j.rev;
+    if(C.sujo||r.j.rev===0&&(S.tx.length||S.contas.length||S.rendas.length)){C.sujo=true;saveC();await empurra()}
+    else status('');
+  }catch(e){status('sem conexão · salvo só no aparelho');console.warn(e)}
+}
+addEventListener('online',()=>{if(C&&sessionStorage.getItem('saveon:ok')){C.sujo?empurra():puxa()}});
 
 let TAB='hoje',VM=mesDe(hoje()),GM=mesDe(hoje());
 
@@ -575,7 +657,7 @@ const A={
     else S.tx.push({id:uid(),d:F.d,v,cat:F.cat,desc:F.desc,conta:F.conta||undefined,src:'manual',ok:true,ts:Date.now()});
     fecha();save();toast('Salvo');
   },
-  fApagar(){if(!confirm('Apagar este lançamento?'))return;S.tx=S.tx.filter(x=>x.id!==F.id);fecha();save()},
+  fApagar(){if(!confirm('Apagar este lançamento?'))return;(S.del=S.del||[]).push(F.id);S.tx=S.tx.filter(x=>x.id!==F.id);fecha();save()},
   pagar(d){
     const c=contasDoMes(mesDe(hoje())).find(x=>x.id===d.id);if(!c)return;
     formTx(null);F.cat=c.cat;F.conta=c.cat==='contas'?c.id:undefined;F.desc=c.nome;F.v=Math.max(0,c.valor-pagoConta(c,mesDe(hoje())));drawTx();
@@ -597,11 +679,15 @@ const A={
     sheet(`<h3>Ajustes</h3>
     <div class="sec" style="margin-top:0">Extrato</div>
     <div class="card"><div class="meta" style="margin-bottom:10px">No app do C6: Extrato → compartilhar → <b>PDF</b> (ou OFX/CSV se aparecer). Depois toque abaixo e escolha o arquivo. Repetidos são ignorados.</div><button class="b pri full" data-a="importar">Importar extrato</button>${(()=>{try{return localStorage.getItem(LP)?'<button class="b sm" data-a="esqueceSenhaPdf" style="margin-top:10px">Esquecer a senha do PDF</button>':''}catch(e){return''}})()}</div>
+    <div class="sec">Conta</div>
+    <div class="card"><div class="row" style="justify-content:space-between"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(C?.email||'')}</span><span class="pill ${C&&!C.sujo&&!C.expirou?'ok':'warn'}">${!C?'sem conta':C.expirou?'entrar de novo':C.sujo?'pendente':'na nuvem'}</span></div>
+      <div class="meta" style="margin:8px 0 10px">${C?.em?'Último envio às '+new Date(C.em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'. ':''}Seus dados ficam criptografados no servidor: só a sua senha abre. Se esquecer a senha, não dá para recuperar.</div>
+      <div class="row"><button class="b sm pri" data-a="sincronizar">Sincronizar agora</button><button class="b sm" data-a="sair">Sair da conta</button></div></div>
     <div class="sec">Segurança</div>
     <div class="card"><div class="row" style="justify-content:space-between"><span>Face ID / Touch ID</span><span class="pill ${au&&au.cred?'ok':''}">${au&&au.cred?'ligado':'desligado'}</span></div>
-      <div class="row" style="margin-top:10px">${au&&au.cred?'<button class="b sm" data-a="bioOff">Desligar</button>':'<button class="b sm pri" data-a="bioOn">Ligar Face ID</button>'}<button class="b sm" data-a="trocaSenha">Trocar senha</button><button class="b sm" data-a="bloquear">Bloquear agora</button></div></div>
+      <div class="row" style="margin-top:10px">${au&&au.cred?'<button class="b sm" data-a="bioOff">Desligar</button>':'<button class="b sm pri" data-a="bioOn">Ligar Face ID</button>'}<button class="b sm" data-a="bloquear">Bloquear agora</button></div></div>
     <div class="sec">Seus dados</div>
-    <div class="card"><div class="meta" style="margin-bottom:10px">Tudo fica só neste aparelho. Faça uma cópia de vez em quando (e para passar do celular para o computador).</div>
+    <div class="card"><div class="meta" style="margin-bottom:10px">Seus dados já ficam na nuvem. Esta cópia em arquivo é um backup extra, se você quiser.</div>
       <div class="row"><button class="b sm" data-a="exportar">Salvar cópia</button><button class="b sm" data-a="importBak">Abrir cópia ou plano</button></div>
       <button class="b sm red" data-a="zerar" style="margin-top:14px">Apagar tudo</button></div>
     <div class="meta" style="text-align:center;margin-top:14px">SaveOn · v1 · ${S.tx.length} lançamentos</div>`);
@@ -613,11 +699,17 @@ const A={
     if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],title:nome}).catch(()=>{})}
     else{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nome;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)}
   },
-  zerar(){if(prompt('Isto apaga todos os lançamentos e o plano deste aparelho. Para confirmar, digite APAGAR')==='APAGAR'){S=VAZIO();fecha();save();toast('Tudo apagado')}},
+  zerar(){if(prompt('Isto apaga todos os lançamentos e o plano deste aparelho. Para confirmar, digite APAGAR')==='APAGAR'){{const ids=S.tx.map(t=>t.id).concat(S.del||[]);S=VAZIO();S.del=ids;}fecha();save();toast('Tudo apagado')}},
   bloquear(){fecha();trava()},
   async bioOn(){try{await bioCriar();toast('Face ID ligado');A.config()}catch(e){toast('Não deu para ligar: '+(e.message||e))}},
   bioOff(){const a=auth();delete a.cred;localStorage.setItem(LA,JSON.stringify(a));A.config()},
-  trocaSenha(){fecha();telaSenha(true)},
+  async sincronizar(){toast('Sincronizando…');await empurra();await puxa();A.config();toast(C&&!C.sujo&&!C.expirou?'Tudo salvo na nuvem':'Não deu para sincronizar')},
+  async sair(){
+    if(!confirm((C&&C.sujo?'Há alterações que ainda não subiram para a nuvem e vão se perder. ':'')+'Sair da conta neste aparelho? Seus dados continuam salvos na nuvem.'))return;
+    try{await api('/sair','POST',null,C.token)}catch(e){}
+    for(const k of[LS,LC,LA,LP])try{localStorage.removeItem(k)}catch(e){}
+    C=null;S=VAZIO();fecha();sessionStorage.removeItem('saveon:ok');telaConta('entrar');
+  },
   fRenda(d){const r=S.rendas.find(x=>x.id===d.id);formGen(r?'Editar entrada':'Nova entrada',[{k:'nome',l:'Nome',v:r?.nome,p:'Salário'},{k:'valor',l:'Valor por mês (se varia, uma média)',t:'n',v:r?.valor},{k:'dia',l:'Dia que cai',t:'n',v:r?.dia,req:false},{k:'tipo',l:'Tipo',t:'sel',v:r?.tipo||'fixa',o:[['fixa','Fixa (todo mês igual)'],['variavel','Variável (muda todo mês)']]},{k:'obs',l:'Observação',v:r?.obs}],o=>{o.dia=isFinite(o.dia)?o.dia:0;if(r)Object.assign(r,o);else S.rendas.push({id:uid(),...o})},r?()=>{S.rendas=S.rendas.filter(x=>x!==r)}:null)},
   fVarMes(d){const r=S.rendas.find(x=>x.id===d.id);const m=mesDe(hoje());const cur=(S.varMes[m]&&S.varMes[m][r.id]!=null)?S.varMes[m][r.id]:r.valor;formGen(`${r.nome}: ${nomeMes(m)}`,[{k:'v',l:'Quanto vai entrar este mês',t:'n',v:cur}],o=>{(S.varMes[m]=S.varMes[m]||{})[r.id]=o.v})},
   fMeta(d){const lab={mercado:'Teto do mercado no mês',variaveis:'Teto das variáveis no mês',guardarPct:'Guardar quantos % do salário',reserva:'Quanto você tem guardado hoje'}[d.k];const cur=d.k==='reserva'?S.reserva:S.metas[d.k];formGen('Meta',[{k:'v',l:lab,t:'n',v:cur}],o=>{if(d.k==='reserva')S.reserva=o.v;else S.metas[d.k]=o.v})},
@@ -827,17 +919,34 @@ async function bioEntrar(){
   await navigator.credentials.get({publicKey:{challenge:crypto.getRandomValues(new Uint8Array(32)),allowCredentials:[{type:'public-key',id:b64d(a.cred),transports:['internal','hybrid']}],userVerification:'required',timeout:60000}});
   libera();
 }
-function libera(){$('#lock').classList.remove('on');sessionStorage.setItem('saveon:ok','1');render()}
+function libera(){$('#lock').classList.remove('on');sessionStorage.setItem('saveon:ok','1');render();if(C)puxa()}
 function trava(){sessionStorage.removeItem('saveon:ok');telaEntrar()}
-function telaSenha(troca){
+function temDadosLocais(){return!!(S.tx.length||S.contas.length||S.rendas.length)}
+function telaConta(modo,emailPre){
+  modo=modo||'entrar';const criar=modo==='criar';
   $('#lock').classList.add('on');
-  $('#lockc').innerHTML=`<h1>${troca?'Nova senha':'Crie sua senha'}</h1><p>${troca?'Digite a nova senha duas vezes.':'Ela protege o app neste aparelho. Depois você pode ligar o Face ID.'}</p>
-  <form id="fs"><input class="inp" type="password" id="s1" placeholder="Senha (mínimo 4)" autocomplete="new-password" required><input class="inp" type="password" id="s2" placeholder="Repita a senha" autocomplete="new-password" required><div class="err" id="serr"></div><button class="b pri">Continuar</button>${troca?'<button type="button" class="b" id="scan">Cancelar</button>':''}</form>`;
-  if(troca)$('#scan').onclick=()=>$('#lock').classList.remove('on');
-  $('#fs').onsubmit=async e=>{e.preventDefault();const a1=$('#s1').value,a2=$('#s2').value;if(a1.length<4){$('#serr').textContent='Use pelo menos 4 caracteres';return}if(a1!==a2){$('#serr').textContent='As senhas não são iguais';return}
-    const salt=b64e(crypto.getRandomValues(new Uint8Array(16)));const a=auth()||{};a.salt=salt;a.hash=await hashSenha(a1,salt);localStorage.setItem(LA,JSON.stringify(a));
-    if(!troca&&await bioDisp()){telaBioOferta()}else{libera();toast('Senha salva')}};
-  setTimeout(()=>$('#s1').focus(),200);
+  $('#lockc').innerHTML=`<h1>${criar?'Criar conta':'Entrar'}</h1><p>${criar?'Seus dados ficam na nuvem, criptografados, e aparecem em qualquer aparelho.':'Entre com a sua conta para ver seus dados.'}</p>
+  <form id="fc"><input class="inp" type="email" id="c1" placeholder="E-mail" autocomplete="username" value="${esc(emailPre||C?.email||'')}" required><input class="inp" type="password" id="c2" placeholder="Senha${criar?' (mínimo 8)':''}" autocomplete="${criar?'new-password':'current-password'}" required>${criar?'<input class="inp" type="password" id="c3" placeholder="Repita a senha" autocomplete="new-password" required><input class="inp" id="c4" placeholder="Código de convite" autocomplete="off" autocapitalize="off" required>':''}<div class="err" id="cerr"></div><button class="b pri" id="cbt">${criar?'Criar conta':'Entrar'}</button><button type="button" class="b" id="ctr">${criar?'Já tenho conta':'Criar conta nova'}</button></form>`;
+  $('#ctr').onclick=()=>telaConta(criar?'entrar':'criar',$('#c1').value);
+  $('#fc').onsubmit=async e=>{
+    e.preventDefault();
+    const email=$('#c1').value.trim().toLowerCase(),pw=$('#c2').value,err=m=>{$('#cerr').textContent=m;$('#cbt').disabled=false;$('#cbt').textContent=criar?'Criar conta':'Entrar'};
+    if(criar){if(pw.length<8)return err('Use pelo menos 8 caracteres');if(pw!==$('#c3').value)return err('As senhas não são iguais')}
+    $('#cbt').disabled=true;$('#cbt').textContent='Aguarde…';$('#cerr').textContent='';
+    try{
+      const{auth,key}=await derivar(email,pw);
+      if(criar){const r=await api('/registro','POST',{email,auth,convite:$('#c4').value.trim()});if(!r.ok)return err(r.j.erro||'Não consegui criar a conta')}
+      const r=await api('/login','POST',{email,auth});
+      if(!r.ok)return err(r.j.erro||'Não consegui entrar');
+      C={email,token:r.j.token,key,rev:0,sujo:temDadosLocais()};saveC();
+      const salt=b64e(crypto.getRandomValues(new Uint8Array(16)));
+      localStorage.setItem(LA,JSON.stringify({salt,hash:await hashSenha(pw,salt)}));
+      $('#cbt').textContent='Carregando seus dados…';
+      await puxa();
+      if(await bioDisp())telaBioOferta();else libera();
+    }catch(x){console.warn(x);err('Sem conexão com o servidor. Tente de novo.')}
+  };
+  setTimeout(()=>$('#c1').value?$('#c2').focus():$('#c1').focus(),200);
 }
 function telaBioOferta(){
   $('#lockc').innerHTML=`<h1>Ligar Face ID?</h1><p>Para abrir o app só olhando para o celular (ou com o dedo no Mac).</p><form onsubmit="return false"><button type="button" class="b pri" id="bOn">Ligar Face ID</button><button type="button" class="b" id="bNo">Agora não</button><div class="err" id="serr"></div></form>`;
@@ -847,20 +956,20 @@ function telaBioOferta(){
 async function telaEntrar(){
   const a=auth();$('#lock').classList.add('on');
   const bio=a.cred&&await bioDisp();
-  $('#lockc').innerHTML=`<h1>SaveOn</h1><p>Seu controle financeiro.</p><form id="fe">${bio?'<button type="button" class="b pri" id="bBio">Entrar com Face ID</button>':''}<input class="inp" type="password" id="e1" placeholder="Senha" autocomplete="current-password"><div class="err" id="eerr"></div><button class="b ${bio?'':'pri'}">Entrar com senha</button></form>`;
+  $('#lockc').innerHTML=`<h1>SaveOn</h1><p>Digite a senha da sua conta.</p><form id="fe">${bio?'<button type="button" class="b pri" id="bBio">Entrar com Face ID</button>':''}<input class="inp" type="password" id="e1" placeholder="Senha" autocomplete="current-password"><div class="err" id="eerr"></div><button class="b ${bio?'':'pri'}">Entrar com senha</button></form>`;
   if(bio)$('#bBio').onclick=()=>bioEntrar().catch(()=>{$('#eerr').textContent='Face ID cancelado. Use a senha.'});
   $('#fe').onsubmit=async e=>{e.preventDefault();const h=await hashSenha($('#e1').value,a.salt);if(h===a.hash)libera();else{$('#eerr').textContent='Senha errada';$('#e1').value=''}};
 }
 let saiu=0;
-document.addEventListener('visibilitychange',()=>{if(document.hidden)saiu=Date.now();else{if(saiu&&Date.now()-saiu>5*60e3&&auth()?.hash)trava();else render()}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)saiu=Date.now();else{if(saiu&&Date.now()-saiu>5*60e3&&auth()?.hash)trava();else{render();if(C&&sessionStorage.getItem('saveon:ok'))puxa()}}});
 
 /* ============ início ============ */
 (function(){
   let t=null;try{t=localStorage.getItem(LT)}catch(e){}
   if(t){document.documentElement.dataset.theme=t;if(t==='light')document.querySelector('meta[name=theme-color]').content='#4a9eff'}
   const a=auth();
-  if(!a||!a.hash)telaSenha(false);
-  else if(sessionStorage.getItem('saveon:ok'))render();
+  if(!C||C.expirou||!a||!a.hash)telaConta('entrar');
+  else if(sessionStorage.getItem('saveon:ok')){render();puxa()}
   else telaEntrar();
   render();
   if('serviceWorker'in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('sw.js').catch(()=>{});
