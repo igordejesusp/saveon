@@ -348,9 +348,9 @@ svg text{font-family:var(--f)}
 /* ============ utilidades ============ */
 const $=s=>document.querySelector(s);
 const LS='saveon:v1',LA='saveon:auth',LT='saveon:tema',LP='saveon:pdfpw';
-let IMPF='debito';
+let IMPF='debito',IMPCC=null,IMPCARD=null;
 const LC='saveon:conta';
-const VERSAO='v11';
+const VERSAO='v12';
 const API=(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:8788':'https://saveon.igordejesusp.workers.dev';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brl=v=>(v<0?'−':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -439,15 +439,18 @@ if(!S||typeof S!=='object')S=VAZIO();
 for(const[k,v]of Object.entries(VAZIO()))if(S[k]===undefined)S[k]=v;
 let MIG=false;
 const purgaImp=o=>{if(o.zeradoImp)return o;const ts=(o.tx||[]).filter(t=>t.src==='import');o.del=(o.del||[]).concat(ts.map(t=>t.id)).slice(-3000);o.tx=(o.tx||[]).filter(t=>t.src!=='import');o.imports=[];o.zeradoImp=1;MIG=true;return o};
+const zeraTudo=o=>{if(o.zero12)return o;(o.carteiras||[]).forEach(c=>{c.base=+((c.base||0)+soma((o.tx||[]).filter(t=>t.fonte!=='cartao'&&(t.cc||o.carteiras[0].id)===c.id),'v')).toFixed(2)});
+  (o.cartoes||[]).forEach(k=>{k.base=0});
+  o.del=(o.del||[]).concat((o.tx||[]).map(t=>t.id)).slice(-3000);o.tx=[];o.imports=[];o.zero12=1;MIG=true;return o};
 const migraCart=o=>{if(!o.carteiras){o.carteiras=[{id:'pf',nome:'C6 pessoal',tipo:'pf',base:+(o.saldoBase||0)},{id:'pj',nome:'C6 empresarial',tipo:'pj',reserva:true,base:+(o.reserva||0)}];MIG=true}
   if(!o.cartoes){o.cartoes=[{id:'c6',nome:'C6 Card',limite:751.36,fecha:29,venc:5}];MIG=true}
   o.cartoes.forEach(k=>{if(!k.fecha){k.fecha=29;k.venc=5;MIG=true}if(k.nome==='C6 Mastercard'){k.nome='C6 Card';MIG=true}});
   if(!o.fatAuto){o.fatAuto=1;(o.contas||[]).forEach(c=>{if(c.id==='cartao'&&!c.pausada){c.pausada=true;c.obs='agora a fatura entra sozinha pelos lançamentos do cartão'}});MIG=true}
   return o};
-purgaImp(S);migraCart(S);if(MIG)try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}
+purgaImp(S);migraCart(S);zeraTudo(S);if(!(S.meusNomes||[]).length)S.meusNomes=['IGOR DE JESUS'];if(MIG)try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}
 let VER=0;
 const save=()=>{try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){toast('Não consegui salvar no aparelho')}VER++;if(C){C.sujo=true;saveC();agenda()}render()};
-const normS=o=>{for(const[k,v]of Object.entries(VAZIO()))if(o[k]===undefined)o[k]=v;return migraCart(purgaImp(o))};
+const normS=o=>{for(const[k,v]of Object.entries(VAZIO()))if(o[k]===undefined)o[k]=v;return zeraTudo(migraCart(purgaImp(o)))};
 
 /* ============ conta e sincronização ============ */
 let C=null;try{C=JSON.parse(localStorage.getItem(LC))}catch(e){}
@@ -534,7 +537,7 @@ const cicloVenc=(k,d)=>{const fe=k.fecha||29,ve=k.venc||5;let m=mesDe(d);if(+d.s
 function faturasDe(k){
   const o={},g=m=>o[m]=o[m]||{total:0,pago:0};
   for(const t of S.tx){if(t.fonte!=='cartao'||cartaoDe(t)!==k.id)continue;
-    if(t.trf&&t.v>0)g(t.fatMes||mesDe(t.d)).pago+=t.v;else g(cicloVenc(k,t.d)).total+=-t.v}
+    if((t.trf||t.pg)&&t.v>0)g(t.fatMes||mesDe(t.d)).pago+=t.v;else g(cicloVenc(k,t.d)).total+=-t.v}
   if(k.base)g(cicloVenc(k,hoje())).total+=k.base;
   return o;
 }
@@ -937,7 +940,12 @@ const A={
   importar(){sheet(`<h3>Qual extrato?</h3><div class="meta" style="margin-bottom:14px">Mande um de cada vez. O do débito mostra o que saiu da conta (Pix, compras no débito). O do cartão mostra no que você gastou na fatura.</div>
     <button class="b pri full" data-a="impFonte" data-f="debito">Débito (conta do C6)</button>
     <button class="b full" data-a="impFonte" data-f="cartao" style="margin-top:10px">Cartão de crédito (fatura)</button>`)},
-  impFonte(d){IMPF=d.f;fecha();$('#fImp').value='';$('#fImp').click()},
+  impFonte(d){IMPF=d.f;
+    if(d.f==='debito'&&S.carteiras.length>1){sheet(`<h3>De qual conta é o extrato?</h3><div class="meta" style="margin-bottom:14px">O app usa o saldo final do extrato para acertar o saldo dessa conta.</div>${S.carteiras.map((c,i)=>`<button class="b ${i?'':'pri'} full" data-a="impConta" data-id="${c.id}" style="margin-top:${i?10:0}px">${esc(c.nome)}</button>`).join('')}`);return}
+    if(d.f==='cartao'&&S.cartoes.length>1){sheet(`<h3>De qual cartão é a fatura?</h3>${S.cartoes.map((c,i)=>`<button class="b ${i?'':'pri'} full" data-a="impCartao" data-id="${c.id}" style="margin-top:${i?10:0}px">${esc(c.nome)}</button>`).join('')}`);return}
+    IMPCC=d.f==='debito'?S.carteiras[0].id:null;IMPCARD=d.f==='cartao'?(S.cartoes[0]||{}).id:null;fecha();$('#fImp').value='';$('#fImp').click()},
+  impConta(d){IMPCC=d.id;IMPCARD=null;fecha();$('#fImp').value='';$('#fImp').click()},
+  impCartao(d){IMPCARD=d.id;IMPCC=null;fecha();$('#fImp').value='';$('#fImp').click()},
   meuNome(d){(S.meusNomes=S.meusNomes||[]).push(d.id);const c=reaplicaMeusNomes();save();toast(c+' lançamento'+(c===1?'':'s')+' passou'+(c===1?'':'aram')+' a ser transferência entre suas contas')},
   naoNome(d){(S.naoNomes=S.naoNomes||[]).push(d.id);save()},
   fNomes(){formGen('Meus nomes',[{k:'n',l:'Nomes que aparecem em Pix/TED entre as suas contas (separe por vírgula)',v:(S.meusNomes||[]).join(', '),p:'ex.: igor de jesus silva'}],o=>{S.meusNomes=o.n.split(',').map(x=>nome3(norm(x))).filter(Boolean);const c=reaplicaMeusNomes();setTimeout(()=>toast(c?c+' lançamento'+(c===1?'':'s')+' reclassificado'+(c===1?'':'s'):'Salvo'),300)})},
@@ -1010,7 +1018,7 @@ function dicaConta(t){const n=norm(t.desc);for(const[k,v]of Object.entries(CONTA
 const RE_OUT=/(?:PIX ENVIADO PARA|TED ENVIADA PARA|TRANSFERENCIA ENVIADA PARA|ENVIADO PARA|ENVIADA PARA) (.+)$/;
 const RE_IN=/(?:PIX RECEBIDO DE|TED RECEBIDA DE|TRANSFERENCIA RECEBIDA DE|RECEBIDO DE|RECEBIDA DE) (.+)$/;
 const nome3=x=>x.split(' ').filter(w=>w.length>1||w==='E').slice(0,3).join(' ');
-function ehMeuDesc(n){n=' '+n.trim()+' ';return/ PIX | TED | TRANSF| DOC /.test(n)&&(S.meusNomes||[]).some(m=>m&&n.includes(' '+m+' '))}
+function ehMeuDesc(n){n=' '+n.trim()+' ';return/ PIX | TED | TRANSF| DOC /.test(n)&&(S.meusNomes||[]).some(m=>{m=norm(m);return m&&n.includes(' '+m+' ')})}
 function nomeCandidatos(){
   const o=new Set(),i=new Set();
   for(const t of S.tx){const n=norm(t.desc);let m;
@@ -1046,8 +1054,11 @@ $('#fImp').addEventListener('change',async e=>{
     else{const txt=await lerTexto(f);lin=/<STMTTRN>/i.test(txt)?lerOFX(txt):lerCSV(txt,IMPF)}
     if(!lin.length){toast('Não achei lançamentos nesse arquivo');return}
     if(lin.conf&&!lin.conf.ok&&!confirm('Os totais não batem com o que o PDF informa.\n\n'+lin.conf.txt+'\n\nImportar mesmo assim?'))return;
-    const r=juntar(lin,IMPF);fecha();save();
-    toast((lin.conf&&lin.conf.ok?'Totais conferem ✓ · ':'')+`${IMPF==='cartao'?'Cartão':'Débito'}: ${r.novos} novos${r.novos?` · ${r.auto} já classificados${r.duvida?` · ${r.duvida} para você conferir`:''}`:''}${r.rep?' · '+r.rep+' já estavam':''}`);
+    const r=juntar(lin,IMPF,{cc:IMPCC,card:IMPCARD});
+    let msgS='';
+    if(IMPF==='debito'&&lin.saldoFinal){const c=S.carteiras.find(x=>x.id===(IMPCC||S.carteiras[0].id));if(c){c.base=+(lin.saldoFinal.v-soma(S.tx.filter(t=>t.fonte!=='cartao'&&ccDe(t)===c.id&&t.d<=lin.saldoFinal.d),'v')).toFixed(2);msgS=` · saldo de ${c.nome} acertado para ${brl(lin.saldoFinal.v)} (${dm(lin.saldoFinal.d)})`}}
+    fecha();save();
+    toast((lin.conf&&lin.conf.ok?'Totais conferem ✓ · ':'')+`${IMPF==='cartao'?'Cartão':'Débito'}: ${r.novos} novos${msgS}${r.novos?` · ${r.auto} já classificados${r.duvida?` · ${r.duvida} para você conferir`:''}`:''}${r.rep?' · '+r.rep+' já estavam':''}`);
     if(r.duvida)A.irRevisar();else A.tab({t:'hoje'});
   }catch(err){console.error(err);toast('Não consegui ler: '+(err.message||err))}
 });
@@ -1188,6 +1199,10 @@ function lerC6(linhas,fonte){
     else{let sub=0,ach=false;for(const l of linhas){const m=l.match(new RegExp('Subtotal deste cart[aã]o\\s*R\\$\\s*'+reMoeda,'i'));if(m){ach=true;sub+=paraNum(m[1])}}
       if(ach)conf={ok:Math.abs(sub-somaCompras)<.015,txt:`A fatura soma ${brl(sub)} em compras. Li ${brl(somaCompras)}.`}}
   }
+  let sf=null;
+  for(const l of linhas){const m=l.match(/Saldo cont[aá]bil do dia\s*(\d{2})\/(\d{2})\/(\d{2,4})\s*(-)?\s*R\$\s*(-)?\s*(\d{1,3}(?:\.\d{3})*,\d{2})/i);
+    if(m){const y=m[3].length===2?'20'+m[3]:m[3],d=`${y}-${m[2]}-${m[1]}`;if(!sf||d>=sf.d)sf={d,v:(m[4]||m[5]?-1:1)*paraNum(m[6])}}}
+  out.saldoFinal=sf;
   out.conf=conf;
   return out;
 }
@@ -1223,7 +1238,7 @@ function lerLinhas(linhas,fonte){
   }
   return out;
 }
-function juntar(lin,fonte){
+function juntar(lin,fonte,op){
   const sig=t=>t.d+'|'+t.v.toFixed(2)+'|'+norm(t.desc).slice(0,24);
   fonte=fonte||'debito';
   const fids=new Set(S.tx.filter(t=>t.fid).map(t=>t.fid));
@@ -1239,7 +1254,7 @@ function juntar(lin,fonte){
     const man=S.tx.find(t=>t.src==='manual'&&!t.casado&&Math.abs(t.v-x.v)<.01&&Math.abs(new Date(t.d+'T12:00')-dx)<=2.5*864e5);
     if(man){man.casado=true;man.fid=x.fid;man.desc=man.desc||x.desc;man.descBanco=x.desc;merge++;continue}
     const a=autoCat(x.desc,x.v,fonte);
-    S.tx.push({id:uid(),d:x.d,v:x.v,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',imp:impId,fonte,ok:!!a.firme,ts:Date.now()});
+    S.tx.push({id:uid(),d:x.d,v:x.v,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',imp:impId,fonte,cc:fonte==='cartao'?undefined:(op&&op.cc)||undefined,card:fonte==='cartao'?(op&&op.card)||undefined:undefined,pg:fonte==='cartao'&&x.v>0&&/PAGAMENTO|PAGTO/.test(norm(x.desc))||undefined,ok:!!a.firme,ts:Date.now()});
     novos++;a.firme?auto++:duvida++;
   }
   (S.imports=S.imports||[]).push({id:impId,em:Date.now(),fonte,n:novos,de:lin.length?de:null,ate:lin.length?ate:null});
