@@ -350,7 +350,7 @@ const $=s=>document.querySelector(s);
 const LS='saveon:v1',LA='saveon:auth',LT='saveon:tema',LP='saveon:pdfpw';
 let IMPF='debito',IMPCC=null,IMPCARD=null;
 const LC='saveon:conta';
-const VERSAO='v12';
+const VERSAO='v13';
 const API=(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:8788':'https://saveon.igordejesusp.workers.dev';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brl=v=>(v<0?'−':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -402,6 +402,7 @@ const CAT={
  contas:{n:'Contas fixas',c:'#5a6b82',g:'fixo',i:'bill'},
  guardar:{n:'Guardar na reserva',c:'#1f6fe0',g:'guardar',i:'save'},
  resgate:{n:'Tirei da reserva',c:'#3fc6de',g:'ignora',i:'swap'},
+ encargos:{n:'Juros, multas e tarifas',c:'#e0442f',g:'fixo',i:'bill'},
  interna:{n:'Entre minhas contas',c:'#3a414b',g:'ignora',i:'swap'},
  entrada:{n:'Entrada',c:'#22b98a',g:'entrada',i:'up'}
 };
@@ -539,13 +540,18 @@ function faturasDe(k){
   for(const t of S.tx){if(t.fonte!=='cartao'||cartaoDe(t)!==k.id)continue;
     if((t.trf||t.pg)&&t.v>0)g(t.fatMes||mesDe(t.d)).pago+=t.v;else g(cicloVenc(k,t.d)).total+=-t.v}
   if(k.base)g(cicloVenc(k,hoje())).total+=k.base;
+  const grp={};
+  for(const t of S.tx){if(t.fonte!=='cartao'||cartaoDe(t)!==k.id||!t.parc||t.v>=0)continue;
+    const key=parcBase(t.desc)+'|'+t.parc.de+'|'+t.v.toFixed(2);
+    if(!grp[key]||t.parc.n>grp[key].parc.n||(t.parc.n===grp[key].parc.n&&t.d>grp[key].d))grp[key]=t}
+  for(const t of Object.values(grp)){const b=cicloVenc(k,t.d);for(let i=1;i<=t.parc.de-t.parc.n;i++){const f=g(addMes(b,i));f.total+=-t.v;f.prev=(f.prev||0)-t.v}}
   return o;
 }
 function contasDoMes(m){
   const ov=(S.contaMes&&S.contaMes[m])||{},pm=(S.pagoMan&&S.pagoMan[m])||{};
   const fix=S.contas.filter(c=>!c.pausada||ov[c.id]!=null||pm[c.id]).map(c=>({...c,valor:ov[c.id]!=null?ov[c.id]:c.valor,av:false}));
   const av=S.avulsos.filter(a=>a.mes===m).map(a=>({...a,valor:ov[a.id]!=null?ov[a.id]:a.valor,cat:'contas',dia:0,av:true}));
-  const fat=(S.cartoes||[]).map(k=>{const f=faturasDe(k)[m]||{total:0,pago:0},id='fat:'+k.id,v0=Math.max(f.total,f.pago);return v0>0?{id,nome:`${k.nome} · fatura de ${MESES[+m.slice(5)-1]}`,valor:ov[id]!=null?ov[id]:v0,cat:'contas',dia:k.venc||5,av:false,fat:true,fk:k.id,pago:f.pago}:null}).filter(Boolean);
+  const fat=(S.cartoes||[]).map(k=>{const f=faturasDe(k)[m]||{total:0,pago:0},id='fat:'+k.id,v0=Math.max(f.total,f.pago);return v0>0?{id,nome:`${k.nome} · fatura de ${MESES[+m.slice(5)-1]}${f.prev&&Math.abs(f.prev-f.total)<.005?' (parcelas previstas)':''}`,valor:ov[id]!=null?ov[id]:v0,cat:'contas',dia:k.venc||5,av:false,fat:true,fk:k.id,pago:f.pago}:null}).filter(Boolean);
   return fix.concat(av,fat);
 }
 function pagoConta(c,m){
@@ -619,7 +625,7 @@ function render(){
 function txItem(t){
   const c=CAT[t.cat]||CAT.outros,ent=t.v>0;
   const tipo=t.trf?'Transferência':t.fonte==='cartao'?nomeCard(cartaoDe(t))+' · crédito':nomeCc(ccDe(t));
-  return`<button class="it" data-a="edit" data-id="${t.id}">${icon(t.cat)}<div class="t"><small class="tp">${tipo}</small><b>${esc(t.desc||c.n)}</b><span>${esc(c.n)}${t.ok?'':' · <span class="warn">revisar</span>'}</span></div><div class="v ${ent?'pos':''}">${ent?'+':'−'}${brl(Math.abs(t.v)).replace('−','')}</div></button>`;
+  return`<button class="it" data-a="edit" data-id="${t.id}">${icon(t.cat)}<div class="t"><small class="tp">${tipo}</small><b>${esc(t.desc||c.n)}</b><span>${esc(c.n)}${t.parc?` · parcela ${t.parc.n}/${t.parc.de}${t.parc.de>t.parc.n?' (faltam '+(t.parc.de-t.parc.n)+')':' (última)'}`:''}${t.ok?'':' · <span class="warn">revisar</span>'}</span></div><div class="v ${ent?'pos':''}">${ent?'+':'−'}${brl(Math.abs(t.v)).replace('−','')}</div></button>`;
 }
 const TI={imp:'M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4',ok:'M5 12.5l4.5 4.5L19 7.5',bill:P.bill,cash:'M3 7h18v10H3zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z'};
 const tile=(a,ic,l,pri,badge)=>`<button class="tile ${pri?'pri':''}" data-a="${a}"><span class="ti"><svg viewBox="0 0 24 24"><path d="${TI[ic]}"/></svg>${badge?`<i class="tb">${badge}</i>`:''}</span><small>${l}</small></button>`;
@@ -668,7 +674,7 @@ function rHoje(k){
   <div class="sec">Contas <button class="lk" data-a="fCarteira">+ Conta</button></div>
   <div class="card" style="padding:4px 18px">${ccs.map(c=>{const v=saldoCart(c);return`<button class="it" data-a="fCarteira" data-id="${c.id}">${icon(c.reserva?'guardar':'contas')}<div class="t"><b>${esc(c.nome)}</b><span>${c.reserva?'reserva de emergência':c.tipo==='din'?'dinheiro':c.tipo==='pj'?'empresarial':'pessoal'}</span></div><div class="v ${v<0?'bad':''}">${brl(v)}</div></button>`}).join('')}<div class="ln tot"><span>Total</span><b>${brl(saldoTotal())}</b></div></div>
   <div class="sec">Cartão de crédito <button class="lk" data-a="fCartao">+ Cartão</button></div>
-  <div class="card" style="padding:4px 18px">${cds.map(c=>{const f=faturaDe(c),disp=(c.limite||0)-f,fs=faturasDe(c),ab=Object.keys(fs).sort().filter(m=>fs[m].total-fs[m].pago>.005).slice(0,2);return`<button class="it" data-a="fCartao" data-id="${c.id}"><span class="ic"><svg viewBox="0 0 24 24" style="stroke:#a77bff"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></span><div class="t"><b>${esc(c.nome)}</b><span>${ab.length?ab.map(m=>'fatura de '+MESES[+m.slice(5)-1]+' '+brl0(fs[m].total-fs[m].pago)).join(' · '):'sem fatura aberta'} · fecha dia ${c.fecha||29}</span></div><div class="v">${c.limite?brl0(disp):''}<small style="display:block;font-size:11px;color:var(--dim);font-weight:500">${c.limite?'disponível':''}</small></div></button>`}).join('')||'<div class="empty">Nenhum cartão.</div>'}</div>
+  <div class="card" style="padding:4px 18px">${cds.map(c=>{const f=faturaDe(c),disp=(c.limite||0)-f,fs=faturasDe(c),ab=Object.keys(fs).sort().filter(m=>fs[m].total-fs[m].pago>.005).slice(0,2);return`<button class="it" data-a="fCartao" data-id="${c.id}"><span class="ic"><svg viewBox="0 0 24 24" style="stroke:#a77bff"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></span><div class="t"><b>${esc(c.nome)}</b><span>${ab.length?ab.map(m=>'fatura de '+MESES[+m.slice(5)-1]+' '+brl0(fs[m].total-fs[m].pago)).join(' · '):'sem fatura aberta'} · fecha dia ${c.fecha||29}${c.futuras?' · parcelas futuras '+brl0(c.futuras):''}</span></div><div class="v">${c.limite?brl0(disp):''}<small style="display:block;font-size:11px;color:var(--dim);font-weight:500">${c.limite?'disponível':''}</small></div></button>`}).join('')||'<div class="empty">Nenhum cartão.</div>'}</div>
   <div class="card hero ${neg?'neg':''}" style="margin-top:12px">
     <div class="lbl">${neg?'Passou do limite de hoje':'Pode gastar hoje'}</div>
     <div class="v num">${brl(Math.abs(k.pode)).replace(/,(\d\d)$/,'<small>,$1</small>')}</div>
@@ -1057,6 +1063,7 @@ $('#fImp').addEventListener('change',async e=>{
     const r=juntar(lin,IMPF,{cc:IMPCC,card:IMPCARD});
     let msgS='';
     if(IMPF==='debito'&&lin.saldoFinal){const c=S.carteiras.find(x=>x.id===(IMPCC||S.carteiras[0].id));if(c){c.base=+(lin.saldoFinal.v-soma(S.tx.filter(t=>t.fonte!=='cartao'&&ccDe(t)===c.id&&t.d<=lin.saldoFinal.d),'v')).toFixed(2);msgS=` · saldo de ${c.nome} acertado para ${brl(lin.saldoFinal.v)} (${dm(lin.saldoFinal.d)})`}}
+    if(IMPF==='cartao'&&lin.cartao){const k=S.cartoes.find(x=>x.id===(IMPCARD||S.cartoes[0].id));if(k){const q=lin.cartao;if(q.limite>0)k.limite=q.limite;if(q.futuras!==null){k.futuras=q.futuras;k.futurasEm=hoje()}if(q.fecha)k.fecha=q.fecha;if(q.venc)k.venc=q.venc}}
     fecha();save();
     toast((lin.conf&&lin.conf.ok?'Totais conferem ✓ · ':'')+`${IMPF==='cartao'?'Cartão':'Débito'}: ${r.novos} novos${msgS}${r.novos?` · ${r.auto} já classificados${r.duvida?` · ${r.duvida} para você conferir`:''}`:''}${r.rep?' · '+r.rep+' já estavam':''}`);
     if(r.duvida)A.irRevisar();else A.tab({t:'hoje'});
@@ -1157,6 +1164,11 @@ const reMoeda='(\\d{1,3}(?:\\.\\d{3})*,\\d{2})';
 const paraNum=x=>parseFloat(x.replace(/\./g,'').replace(',','.'));
 /* Leitor exato dos PDFs do C6: extrato da conta (duas datas, Tipo, Descrição, Valor) e fatura do cartão (dd mês, descrição, valor).
    Só lê linhas que têm exatamente esse formato; cabeçalhos, saldos, opções de pagamento e parcelamento ficam de fora. */
+function achaParc(desc){
+  let m=desc.match(/(?:parcela|parc\.?)\s*(\d{1,2})\s*(?:\/|de)\s*(\d{1,2})/i)||desc.match(/\b(\d{1,2})\s*\/\s*(\d{1,2})\s*$/)||desc.match(/\b(\d{1,2})\s+de\s+(\d{1,2})\s*$/i);
+  if(!m)return null;const n=+m[1],de=+m[2];return n>=1&&de>=2&&de<=48&&n<=de?{n,de}:null;
+}
+const parcBase=d=>norm(d.replace(/(?:parcela|parc\.?)?\s*\d{1,2}\s*(?:\/|de)\s*\d{1,2}\s*$/i,'').replace(/(?:parcela|parc\.?)\s*\d{1,2}\s*(?:\/|de)\s*\d{1,2}/i,''));
 function lerC6(linhas,fonte){
   const txt=linhas.join('\n');
   const MES={jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
@@ -1172,8 +1184,23 @@ function lerC6(linhas,fonte){
   const out=[];let somaE=0,somaS=0,somaCompras=0;
   const reDeb=new RegExp('^(\\d{2})\\/(\\d{2})\\s+\\d{2}\\/\\d{2}\\s+(.+?)\\s+(-|−)?\\s*R\\$\\s*(-|−)?\\s*'+reMoeda+'\\s*$');
   const reCar=new RegExp('^(\\d{1,2})\\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\\.?\\s+(.+?)\\s+(-)?\\s*(?:R\\$\\s*)?'+reMoeda+'\\s*$','i');
+  let inResumo=false,atraso=0,tarifas=0,totalPagar=null,futuras=null,limite=null,fechISO=null,vencDia=null;
+  const fm=txt.match(/fechamento desta fatura em\s*(\d{2})\/(\d{2})\/(\d{2,4})/i);if(fm)fechISO=`${fm[3].length===2?'20'+fm[3]:fm[3]}-${fm[2]}-${fm[1]}`;
+  const vm=txt.match(/Vencimento:?\s*(\d{2})\/(\d{2})\/(20\d{2})/);if(vm)vencDia=+vm[1];
+  const mf=txt.match(/Saldo obriga[cç][oõ]es futuras\s*(?:R\$)?\s*(\d{1,3}(?:\.\d{3})*,\d{2})/i);if(mf)futuras=paraNum(mf[1]);
+  for(let i=0;i<linhas.length&&limite===null;i++){if(/Limite de cart[aã]o/i.test(linhas[i])){for(let j=i;j<Math.min(i+6,linhas.length);j++){const v=[...linhas[j].matchAll(/R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})/g)];if(v.length>=3){limite=paraNum(v[0][1]);break}}}}
   for(let l of linhas){
     l=l.replace(/^[^\p{L}\p{N}-]+/u,'').replace(/\s+/g,' ').trim();
+    const Ln=norm(l);
+    if(/^RESUMO DA FATURA/.test(Ln)){inResumo=true;continue}
+    if(inResumo){
+      const tp=l.match(/^Total a pagar\s*(?:R\$)?\s*(\d{1,3}(?:\.\d{3})*,\d{2})$/i);
+      if(tp){totalPagar=paraNum(tp[1]);inResumo=false;continue}
+      const mm=l.match(/^(.*?)\s+(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})$/);
+      if(mm){const lab=norm(mm[1]),val=paraNum(mm[2]);
+        if(val>=0.01&&!/^COMPRAS /.test(lab)){if(/JUROS|MULTA|IOF/.test(lab))atraso+=val;else if(/ANUIDADE|TARIFA|PERSONALIZ/.test(lab))tarifas+=val}
+        continue}
+    }
     let m=l.match(reDeb);
     if(m){
       const desc=m[3];if(/^SALDO/.test(norm(desc)))continue;
@@ -1185,17 +1212,22 @@ function lerC6(linhas,fonte){
       const desc=m[3].replace(/\s+/g,' ').trim(),D=norm(desc);
       if(/^SUBTOTAL|^TOTAL/.test(D))continue;
       let v=paraNum(m[5]);
+      if(v<0.005)continue;
       const cred=!!m[4]||/PAGAMENTO|ESTORNO|CREDITO|DEVOLU/.test(D);
       if(cred)v=Math.abs(v);else{v=-Math.abs(v);somaCompras+=-v}
-      out.push({d:dat(MES[m[2].toLowerCase()],+m[1]),v,desc});
+      const it={d:dat(MES[m[2].toLowerCase()],+m[1]),v,desc};const pc=!cred&&achaParc(desc);if(pc)it.parc=pc;out.push(it);
     }
   }
+  const dEnc=fechISO||(out.length?out.map(x=>x.d).sort().pop():hoje());
+  if(atraso>=0.01){out.push({d:dEnc,v:-atraso,desc:'Juros e multa de atraso',cat:'encargos'});somaCompras+=atraso}
+  if(tarifas>=0.01){out.push({d:dEnc,v:-tarifas,desc:'Tarifas do cartão',cat:'encargos'});somaCompras+=tarifas}
   /* conferência com os totais que o próprio PDF informa */
   let conf=null;
   if(out.length){
     let E=0,S2=0,achou=false;
     for(const l of linhas){const m=l.match(new RegExp('Entradas:?\\s*R\\$\\s*'+reMoeda+'.*?Sa[ií]das:?\\s*R\\$\\s*'+reMoeda,'i'));if(m){achou=true;E+=paraNum(m[1]);S2+=paraNum(m[2])}}
     if(achou)conf={ok:Math.abs(E-somaE)<.015&&Math.abs(S2-somaS)<.015,txt:`Extrato diz: entrou ${brl(E)} e saiu ${brl(S2)}. Li: entrou ${brl(somaE)} e saiu ${brl(somaS)}.`};
+    else if(totalPagar!==null)conf={ok:Math.abs(totalPagar-somaCompras)<.015,txt:`A fatura diz total a pagar ${brl(totalPagar)}. Li ${brl(somaCompras)} em compras e encargos.`};
     else{let sub=0,ach=false;for(const l of linhas){const m=l.match(new RegExp('Subtotal deste cart[aã]o\\s*R\\$\\s*'+reMoeda,'i'));if(m){ach=true;sub+=paraNum(m[1])}}
       if(ach)conf={ok:Math.abs(sub-somaCompras)<.015,txt:`A fatura soma ${brl(sub)} em compras. Li ${brl(somaCompras)}.`}}
   }
@@ -1203,6 +1235,7 @@ function lerC6(linhas,fonte){
   for(const l of linhas){const m=l.match(/Saldo cont[aá]bil do dia\s*(\d{2})\/(\d{2})\/(\d{2,4})\s*(-)?\s*R\$\s*(-)?\s*(\d{1,3}(?:\.\d{3})*,\d{2})/i);
     if(m){const y=m[3].length===2?'20'+m[3]:m[3],d=`${y}-${m[2]}-${m[1]}`;if(!sf||d>=sf.d)sf={d,v:(m[4]||m[5]?-1:1)*paraNum(m[6])}}}
   out.saldoFinal=sf;
+  out.cartao=(limite!==null||futuras!==null||fechISO)?{limite,futuras,fecha:fechISO?+fechISO.slice(8):null,venc:vencDia}:null;
   out.conf=conf;
   return out;
 }
@@ -1253,8 +1286,8 @@ function juntar(lin,fonte,op){
     const dx=new Date(x.d+'T12:00');
     const man=S.tx.find(t=>t.src==='manual'&&!t.casado&&Math.abs(t.v-x.v)<.01&&Math.abs(new Date(t.d+'T12:00')-dx)<=2.5*864e5);
     if(man){man.casado=true;man.fid=x.fid;man.desc=man.desc||x.desc;man.descBanco=x.desc;merge++;continue}
-    const a=autoCat(x.desc,x.v,fonte);
-    S.tx.push({id:uid(),d:x.d,v:x.v,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',imp:impId,fonte,cc:fonte==='cartao'?undefined:(op&&op.cc)||undefined,card:fonte==='cartao'?(op&&op.card)||undefined:undefined,pg:fonte==='cartao'&&x.v>0&&/PAGAMENTO|PAGTO/.test(norm(x.desc))||undefined,ok:!!a.firme,ts:Date.now()});
+    const a=x.cat?{cat:x.cat,firme:true}:autoCat(x.desc,x.v,fonte);
+    S.tx.push({id:uid(),d:x.d,v:x.v,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',imp:impId,fonte,cc:fonte==='cartao'?undefined:(op&&op.cc)||undefined,card:fonte==='cartao'?(op&&op.card)||undefined:undefined,pg:fonte==='cartao'&&x.v>0&&/PAGAMENTO|PAGTO/.test(norm(x.desc))||undefined,parc:x.parc||undefined,ok:!!a.firme,ts:Date.now()});
     novos++;a.firme?auto++:duvida++;
   }
   (S.imports=S.imports||[]).push({id:impId,em:Date.now(),fonte,n:novos,de:lin.length?de:null,ate:lin.length?ate:null});
