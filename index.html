@@ -350,7 +350,7 @@ const $=s=>document.querySelector(s);
 const LS='saveon:v1',LA='saveon:auth',LT='saveon:tema',LP='saveon:pdfpw';
 let IMPF='debito';
 const LC='saveon:conta';
-const VERSAO='v10';
+const VERSAO='v11';
 const API=(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:8788':'https://saveon.igordejesusp.workers.dev';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brl=v=>(v<0?'−':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -410,7 +410,7 @@ const CATS_ENTRADA=['entrada','resgate','interna'];
 const ccDe=t=>t.cc||(S.carteiras&&S.carteiras[0]?S.carteiras[0].id:'pf');
 const cartaoDe=t=>t.card||(S.cartoes&&S.cartoes[0]?S.cartoes[0].id:'');
 const saldoCart=c=>(c.base||0)+soma(S.tx.filter(t=>t.fonte!=='cartao'&&ccDe(t)===c.id),'v');
-const faturaDe=k=>-soma(S.tx.filter(t=>t.fonte==='cartao'&&cartaoDe(t)===k.id),'v');
+const faturaDe=k=>(k.base||0)-soma(S.tx.filter(t=>t.fonte==='cartao'&&cartaoDe(t)===k.id),'v');
 const saldoTotal=()=>soma(S.carteiras||[],saldoCart);
 const reservaConta=()=>(S.carteiras||[]).find(c=>c.reserva);
 const reservaAtual=()=>{const r=reservaConta();return r?saldoCart(r):0};
@@ -440,7 +440,10 @@ for(const[k,v]of Object.entries(VAZIO()))if(S[k]===undefined)S[k]=v;
 let MIG=false;
 const purgaImp=o=>{if(o.zeradoImp)return o;const ts=(o.tx||[]).filter(t=>t.src==='import');o.del=(o.del||[]).concat(ts.map(t=>t.id)).slice(-3000);o.tx=(o.tx||[]).filter(t=>t.src!=='import');o.imports=[];o.zeradoImp=1;MIG=true;return o};
 const migraCart=o=>{if(!o.carteiras){o.carteiras=[{id:'pf',nome:'C6 pessoal',tipo:'pf',base:+(o.saldoBase||0)},{id:'pj',nome:'C6 empresarial',tipo:'pj',reserva:true,base:+(o.reserva||0)}];MIG=true}
-  if(!o.cartoes){o.cartoes=[{id:'c6',nome:'C6 Mastercard',limite:751.36}];MIG=true}return o};
+  if(!o.cartoes){o.cartoes=[{id:'c6',nome:'C6 Card',limite:751.36,fecha:29,venc:5}];MIG=true}
+  o.cartoes.forEach(k=>{if(!k.fecha){k.fecha=29;k.venc=5;MIG=true}if(k.nome==='C6 Mastercard'){k.nome='C6 Card';MIG=true}});
+  if(!o.fatAuto){o.fatAuto=1;(o.contas||[]).forEach(c=>{if(c.id==='cartao'&&!c.pausada){c.pausada=true;c.obs='agora a fatura entra sozinha pelos lançamentos do cartão'}});MIG=true}
+  return o};
 purgaImp(S);migraCart(S);if(MIG)try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}
 let VER=0;
 const save=()=>{try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){toast('Não consegui salvar no aparelho')}VER++;if(C){C.sujo=true;saveC();agenda()}render()};
@@ -527,13 +530,23 @@ addEventListener('online',()=>{if(C&&sessionStorage.getItem('saveon:ok')){C.sujo
 let TAB='hoje',VM=mesDe(hoje()),GM=mesDe(hoje()),EF='todos',PT='mes';
 
 /* ============ cálculo do mês ============ */
+const cicloVenc=(k,d)=>{const fe=k.fecha||29,ve=k.venc||5;let m=mesDe(d);if(+d.slice(8)>fe)m=addMes(m,1);return ve<=fe?addMes(m,1):m};
+function faturasDe(k){
+  const o={},g=m=>o[m]=o[m]||{total:0,pago:0};
+  for(const t of S.tx){if(t.fonte!=='cartao'||cartaoDe(t)!==k.id)continue;
+    if(t.trf&&t.v>0)g(t.fatMes||mesDe(t.d)).pago+=t.v;else g(cicloVenc(k,t.d)).total+=-t.v}
+  if(k.base)g(cicloVenc(k,hoje())).total+=k.base;
+  return o;
+}
 function contasDoMes(m){
   const ov=(S.contaMes&&S.contaMes[m])||{},pm=(S.pagoMan&&S.pagoMan[m])||{};
   const fix=S.contas.filter(c=>!c.pausada||ov[c.id]!=null||pm[c.id]).map(c=>({...c,valor:ov[c.id]!=null?ov[c.id]:c.valor,av:false}));
   const av=S.avulsos.filter(a=>a.mes===m).map(a=>({...a,valor:ov[a.id]!=null?ov[a.id]:a.valor,cat:'contas',dia:0,av:true}));
-  return fix.concat(av);
+  const fat=(S.cartoes||[]).map(k=>{const f=faturasDe(k)[m]||{total:0,pago:0},id='fat:'+k.id,v0=Math.max(f.total,f.pago);return v0>0?{id,nome:`${k.nome} · fatura de ${MESES[+m.slice(5)-1]}`,valor:ov[id]!=null?ov[id]:v0,cat:'contas',dia:k.venc||5,av:false,fat:true,fk:k.id,pago:f.pago}:null}).filter(Boolean);
+  return fix.concat(av,fat);
 }
 function pagoConta(c,m){
+  if(c.fat){const p=c.pago||0;return(S.pagoMan&&S.pagoMan[m]&&S.pagoMan[m][c.id])?Math.max(p,c.valor):p}
   const p=-soma(S.tx.filter(t=>t.v<0&&mesDe(t.d)===m&&(t.conta===c.id||(!t.conta&&c.cat!=='contas'&&t.cat===c.cat))),'v');
   return(S.pagoMan&&S.pagoMan[m]&&S.pagoMan[m][c.id])?Math.max(p,c.valor):p;
 }
@@ -541,7 +554,7 @@ function calc(m){
   const h=hoje(),mA=mesDe(h)===m,dias=diasNoMes(m);
   const dHoje=mA?+h.slice(8):(m<mesDe(h)?dias+1:1);
   const txs=S.tx.filter(t=>mesDe(t.d)===m);
-  const rFix=soma(S.rendas.filter(r=>r.tipo!=='variavel'),'valor');
+  const rFix=soma(S.rendas.filter(r=>r.tipo!=='variavel'),r=>(S.varMes[m]&&S.varMes[m][r.id]!=null)?S.varMes[m][r.id]:r.valor);
   const rVar=soma(S.rendas.filter(r=>r.tipo==='variavel'),r=>(S.varMes[m]&&S.varMes[m][r.id]!=null)?S.varMes[m][r.id]:r.valor);
   const renda=rFix+rVar;
   const cs=contasDoMes(m);
@@ -652,7 +665,7 @@ function rHoje(k){
   <div class="sec">Contas <button class="lk" data-a="fCarteira">+ Conta</button></div>
   <div class="card" style="padding:4px 18px">${ccs.map(c=>{const v=saldoCart(c);return`<button class="it" data-a="fCarteira" data-id="${c.id}">${icon(c.reserva?'guardar':'contas')}<div class="t"><b>${esc(c.nome)}</b><span>${c.reserva?'reserva de emergência':c.tipo==='din'?'dinheiro':c.tipo==='pj'?'empresarial':'pessoal'}</span></div><div class="v ${v<0?'bad':''}">${brl(v)}</div></button>`}).join('')}<div class="ln tot"><span>Total</span><b>${brl(saldoTotal())}</b></div></div>
   <div class="sec">Cartão de crédito <button class="lk" data-a="fCartao">+ Cartão</button></div>
-  <div class="card" style="padding:4px 18px">${cds.map(c=>{const f=faturaDe(c),disp=(c.limite||0)-f;return`<button class="it" data-a="fCartao" data-id="${c.id}"><span class="ic"><svg viewBox="0 0 24 24" style="stroke:#a77bff"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></span><div class="t"><b>${esc(c.nome)}</b><span>fatura ${brl(f)}${c.limite?' · limite '+brl0(c.limite):''}</span></div><div class="v">${c.limite?brl0(disp):''}<small style="display:block;font-size:11px;color:var(--dim);font-weight:500">${c.limite?'disponível':''}</small></div></button>`}).join('')||'<div class="empty">Nenhum cartão.</div>'}</div>
+  <div class="card" style="padding:4px 18px">${cds.map(c=>{const f=faturaDe(c),disp=(c.limite||0)-f,fs=faturasDe(c),ab=Object.keys(fs).sort().filter(m=>fs[m].total-fs[m].pago>.005).slice(0,2);return`<button class="it" data-a="fCartao" data-id="${c.id}"><span class="ic"><svg viewBox="0 0 24 24" style="stroke:#a77bff"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></span><div class="t"><b>${esc(c.nome)}</b><span>${ab.length?ab.map(m=>'fatura de '+MESES[+m.slice(5)-1]+' '+brl0(fs[m].total-fs[m].pago)).join(' · '):'sem fatura aberta'} · fecha dia ${c.fecha||29}</span></div><div class="v">${c.limite?brl0(disp):''}<small style="display:block;font-size:11px;color:var(--dim);font-weight:500">${c.limite?'disponível':''}</small></div></button>`}).join('')||'<div class="empty">Nenhum cartão.</div>'}</div>
   <div class="card hero ${neg?'neg':''}" style="margin-top:12px">
     <div class="lbl">${neg?'Passou do limite de hoje':'Pode gastar hoje'}</div>
     <div class="v num">${brl(Math.abs(k.pode)).replace(/,(\d\d)$/,'<small>,$1</small>')}</div>
@@ -763,7 +776,7 @@ function rPlano(){
     <div class="meta" style="margin-top:10px">Quando não cabe tudo, o app corta de baixo para cima: variáveis, depois guardar, depois mercado. As contas sempre vêm primeiro.</div></div>`;
   }
   if(PT==='entra'){
-    h+=`<div class="sec" style="margin-top:6px">O que entra <button class="lk" data-a="fRenda">+ Adicionar</button></div><div class="card" style="padding:4px 18px">${S.rendas.map(r=>{const vm=r.tipo==='variavel'?((S.varMes[m]&&S.varMes[m][r.id]!=null)?S.varMes[m][r.id]:r.valor):r.valor;return`<button class="it" data-a="fRenda" data-id="${r.id}">${icon('entrada')}<div class="t"><b>${esc(r.nome)}</b><span>${r.tipo==='variavel'?'variável · ':''}dia ${r.dia||'—'}${r.obs?' · '+esc(r.obs):''}</span></div><div class="v pos">${brl0(vm)}</div></button>${r.tipo==='variavel'?`<div class="row" style="padding:0 0 12px 60px"><button class="b sm" data-a="fVarMes" data-id="${r.id}">Valor de ${MESES[+m.slice(5)-1]}: ${brl0(vm)}</button></div>`:''}`}).join('')||'<div class="empty">Nada cadastrado.</div>'}</div>
+    h+=`<div class="sec" style="margin-top:6px">O que entra <button class="lk" data-a="fRenda">+ Adicionar</button></div><div class="card" style="padding:4px 18px">${S.rendas.map(r=>{const vm=(S.varMes[m]&&S.varMes[m][r.id]!=null)?S.varMes[m][r.id]:r.valor;return`<button class="it" data-a="fRenda" data-id="${r.id}">${icon('entrada')}<div class="t"><b>${esc(r.nome)}</b><span>${r.tipo==='variavel'?'variável · ':''}dia ${r.dia||'—'}${r.obs?' · '+esc(r.obs):''}</span></div><div class="v pos">${brl0(vm)}</div></button>${r.tipo==='variavel'?`<div class="row" style="padding:0 0 12px 60px"><button class="b sm" data-a="fVarMes" data-id="${r.id}">Valor de ${MESES[+m.slice(5)-1]}: ${brl0(vm)}</button></div>`:''}`}).join('')||'<div class="empty">Nada cadastrado.</div>'}</div>
     <div class="meta" style="margin:0 6px">Nas entradas variáveis, o botão "Valor de ${MESES[+m.slice(5)-1]}" muda só este mês. No mês seguinte volta ao valor padrão.</div>`;
   }
   if(PT==='contas'){
@@ -794,6 +807,7 @@ function formTx(t){
   F=t?{...t,tipo:t.v>0?'e':'s',v:Math.abs(t.v),pag:t.fonte==='cartao'?'k:'+cartaoDe(t):'c:'+ccDe(t)}:{id:null,tipo:'s',cat:null,d:hoje(),desc:'',v:0};
   drawTx();if(!t)setTimeout(()=>$('#fv')&&$('#fv').focus(),250);
 }
+function autoFat(){if(F.v>0||!F.para||F.para[0]!=='k')return;const k=(S.cartoes||[]).find(x=>x.id===F.para.slice(2));if(!k)return;const f=faturasDe(k)[F.fatMes||mesDe(F.d)];const r=f?f.total-f.pago:0;if(r>0)F.v=+r.toFixed(2)}
 function pagAtual(){
   if(F.pag)return F.pag;
   if(F.tipo==='s'&&F.fonte==='cartao'&&(S.cartoes||[]).length)return'k:'+(F.card||S.cartoes[0].id);
@@ -814,8 +828,10 @@ function drawTx(){
   ${F.id?'':`<div class="seg"><button class="${F.tipo==='s'?'on':''}" data-a="fTipo" data-t="s">Despesa</button><button class="${ent?'on':''}" data-a="fTipo" data-t="e">Receita</button><button class="${trf?'on':''}" data-a="fTipo" data-t="t">Transferir</button></div>`}
   <input class="inp valor" id="fv" inputmode="decimal" placeholder="0,00" value="${F.v>0?F.v.toFixed(2).replace('.',','):''}" autocomplete="off">
   ${trf?`<div class="lbl" style="margin-bottom:6px">De</div><div class="chips" style="margin-bottom:10px">${ccs.map(c=>chip(de===c.id,'fDe',c.id,c.nome)).join('')}</div>
-  <div class="lbl" style="margin-bottom:6px">Para</div><div class="chips" style="margin-bottom:10px">${ccs.filter(c=>c.id!==de).map(c=>chip(para==='c:'+c.id,'fPara','c:'+c.id,c.nome)).join('')}${cds.map(c=>chip(para==='k:'+c.id,'fPara','k:'+c.id,'Fatura '+c.nome)).join('')}</div>`:`
-  ${ent&&S.rendas.length&&!F.id?`<div class="chips" style="margin-bottom:10px">${S.rendas.map(r=>`<button class="chip" data-a="fRendaSel" data-id="${r.id}">${esc(r.nome)}</button>`).join('')}</div>`:''}
+  <div class="lbl" style="margin-bottom:6px">Para</div><div class="chips" style="margin-bottom:10px">${ccs.filter(c=>c.id!==de).map(c=>chip(para==='c:'+c.id,'fPara','c:'+c.id,c.nome)).join('')}${cds.map(c=>chip(para==='k:'+c.id,'fPara','k:'+c.id,'Fatura '+c.nome)).join('')}</div>
+  ${para[0]==='k'?(()=>{const m0=mesDe(F.d),fm=F.fatMes||m0;return`<div class="lbl" style="margin-bottom:6px">Fatura de</div><div class="chips" style="margin-bottom:10px">${[addMes(m0,-1),m0,addMes(m0,1)].map(m=>chip(fm===m,'fFat',m,MESES[+m.slice(5)-1])).join('')}</div>`})():''}`:`
+  ${ent&&S.rendas.length&&!F.id?`<div class="chips" style="margin-bottom:10px">${S.rendas.map(r=>`<button class="chip ${F.rendaId===r.id?'on':''}" data-a="fRendaSel" data-id="${r.id}">${esc(r.nome)}</button>`).join('')}</div>`:''}
+  ${ent&&F.rendaId&&!F.id?(()=>{const r=S.rendas.find(x=>x.id===F.rendaId),m=mesDe(F.d);const pl=r?((S.varMes[m]&&S.varMes[m][r.id]!=null)?S.varMes[m][r.id]:r.valor):0;return r?`<label class="fld row" style="gap:10px;margin:-2px 0 12px"><input type="checkbox" id="fupd" ${F.upd===false?'':'checked'} style="width:22px;height:22px"><span style="margin:0;color:var(--txt);font-size:13.5px;line-height:1.35">Se o valor for diferente, atualizar o plano de ${MESES[+m.slice(5)-1]} (hoje está ${brl0(pl)})</span></label>`:''})():''}
   <div class="cg">${cats.map(c=>`<button class="${F.cat===c?'on':''}" data-a="fCat" data-c="${c}">${icon(c,34)}<span>${CAT[c].n}</span></button>`).join('')}</div>
   <div class="lbl" style="margin-bottom:6px">${ent?'Entrou em':'Pagou com'}</div><div class="chips" style="margin-bottom:10px">${ccs.map(c=>chip(pag==='c:'+c.id,'fPag','c:'+c.id,c.nome)).join('')}${ent?'':cds.map(c=>chip(pag==='k:'+c.id,'fPag','k:'+c.id,c.nome+' · crédito')).join('')}</div>
   ${cs.length?`<div class="lbl" style="margin-bottom:2px">Qual conta?</div><div class="chips" style="margin-bottom:10px">${cs.map(c=>`<button class="chip ${F.conta===c.id?'on':''}" data-a="fContaSel" data-c="${c.id}">${esc(c.nome)}</button>`).join('')}</div>`:''}`}
@@ -826,7 +842,7 @@ function drawTx(){
   ${F.id?`<button class="b red full" style="margin-top:10px" data-a="${F.trf?'apagaTrf':'fApagar'}" data-g="${F.trf||''}">${F.trf?'Apagar transferência':'Apagar'}</button>`:''}`);
   if(aberto)$('#sbox').scrollTop=st;
 }
-function lerForm(){const v=parseValor($('#fv').value);F.v=isFinite(v)?Math.abs(v):0;F.d=$('#fd').value||F.d;F.desc=$('#fdesc').value.trim()}
+function lerForm(){const v=parseValor($('#fv').value);F.v=isFinite(v)?Math.abs(v):0;F.d=$('#fd').value||F.d;F.desc=$('#fdesc').value.trim();const u=$('#fupd');if(u)F.upd=u.checked}
 
 /* formulários do plano */
 function formGen(tit,campos,onSave,onDel){
@@ -855,10 +871,11 @@ const A={
   fTipo(d){lerForm();F.tipo=d.t;F.cat=null;delete F.conta;drawTx()},
   fPag(d){lerForm();F.pag=d.k;drawTx()},
   fDe(d){lerForm();F.de=d.k;if(F.para==='c:'+d.k)F.para=null;drawTx()},
-  fPara(d){lerForm();F.para=d.k;drawTx()},
+  fPara(d){lerForm();F.para=d.k;if(d.k[0]==='k'){F.fatMes=F.fatMes||mesDe(F.d);autoFat()}drawTx()},
+  fFat(d){lerForm();F.fatMes=d.k;F.v=0;autoFat();drawTx()},
   novo(d){formTx(null);F.tipo=d.t;if(d.k==='k'&&(S.cartoes||[]).length)F.pag='k:'+S.cartoes[0].id;drawTx();setTimeout(()=>$('#fv')&&$('#fv').focus(),250)},
   apagaTrf(d){if(!confirm('Apagar esta transferência dos dois lados?'))return;const ids=S.tx.filter(t=>t.trf===d.g).map(t=>t.id);S.del=(S.del||[]).concat(ids);S.tx=S.tx.filter(t=>t.trf!==d.g);fecha();save()},
-  fRendaSel(d){lerForm();const r=S.rendas.find(x=>x.id===d.id);if(!r)return;const m=mesDe(F.d);F.desc=r.nome;F.cat='entrada';F.v=r.tipo==='variavel'&&S.varMes[m]&&S.varMes[m][r.id]!=null?S.varMes[m][r.id]:r.valor;drawTx()},
+  fRendaSel(d){lerForm();const r=S.rendas.find(x=>x.id===d.id);if(!r)return;const m=mesDe(F.d);F.desc=r.nome;F.cat='entrada';F.rendaId=r.id;F.v=r.tipo==='variavel'&&S.varMes[m]&&S.varMes[m][r.id]!=null?S.varMes[m][r.id]:r.valor;drawTx()},
   mais(){sheet(`<h3>Lançar</h3><div class="mn"><button class="b full" data-a="novo" data-t="s">Despesa</button><button class="b full" data-a="novo" data-t="e">Receita</button><button class="b full" data-a="novo" data-t="t">Transferência</button><button class="b full" data-a="novo" data-t="s" data-k="k">Despesa no cartão</button></div>`)},
   fCarteira(d){
     const c=(S.carteiras||[]).find(x=>x.id===d.id);
@@ -872,9 +889,10 @@ const A={
   },
   fCartao(d){
     const c=(S.cartoes||[]).find(x=>x.id===d.id);
-    formGen(c?c.nome:'Novo cartão',[{k:'n',l:'Nome',v:c?c.nome:'',p:'ex.: C6 Mastercard'},{k:'l',l:'Limite total',t:'n',req:false,v:c?c.limite:''}],o=>{
+    formGen(c?c.nome:'Novo cartão',[{k:'n',l:'Nome',v:c?c.nome:'',p:'ex.: C6 Card'},{k:'l',l:'Limite total',t:'n',req:false,v:c?c.limite:''},{k:'f',l:'Fatura aberta agora (o que já gastou e ainda não pagou). Daqui para frente o app soma cada compra no cartão.',t:'n',req:false,v:c?+faturaDe(c).toFixed(2):0},{k:'fe',l:'Dia em que a fatura fecha',t:'n',v:c?c.fecha:29},{k:'ve',l:'Dia do vencimento',t:'n',v:c?c.venc:5}],o=>{
       if(!o.n){toast('Dê um nome para o cartão');return}
-      let x=c;if(!x){x={id:uid()};S.cartoes.push(x)}x.nome=o.n;x.limite=isFinite(o.l)?o.l:0;
+      let x=c;if(!x){x={id:uid()};S.cartoes.push(x)}x.nome=o.n;x.limite=isFinite(o.l)?o.l:0;x.fecha=clamp(Math.round(o.fe)||29,1,31);x.venc=clamp(Math.round(o.ve)||5,1,31);
+      const f=isFinite(o.f)?o.f:0;x.base=f+soma(S.tx.filter(t=>t.fonte==='cartao'&&cartaoDe(t)===x.id),'v');
     },c&&S.cartoes.length>1&&!S.tx.some(t=>t.fonte==='cartao'&&cartaoDe(t)===c.id)?()=>{S.cartoes=S.cartoes.filter(y=>y.id!==c.id)}:null);
   },
   fCat(d){lerForm();F.cat=d.c;if(d.c!=='contas')delete F.conta;drawTx()},
@@ -889,9 +907,10 @@ const A={
       const g=uid(),base={d:F.d,cat:'interna',src:'manual',ok:true,trf:g,ts:Date.now()};
       S.tx.push({...base,id:uid(),v:-F.v,cc:de,desc:F.desc||'Transferência para '+(para[0]==='k'?'fatura '+nomeCard(para.slice(2)):nomeCc(para.slice(2)))});
       if(para[0]==='c')S.tx.push({...base,id:uid(),v:F.v,cc:para.slice(2),desc:F.desc||'Transferência de '+nomeCc(de)});
-      else S.tx.push({...base,id:uid(),v:F.v,fonte:'cartao',card:para.slice(2),desc:F.desc||'Pagamento da fatura'});
+      else{const fm=F.fatMes||mesDe(F.d);S.tx.push({...base,id:uid(),v:F.v,fonte:'cartao',card:para.slice(2),fatMes:fm,desc:F.desc||'Pagamento da fatura de '+MESES[+fm.slice(5)-1]})}
       S.ultCc=de;fecha();save();toast('Transferido');return;
     }
+    if(F.tipo==='e'&&F.rendaId&&!F.id&&F.upd!==false){const r=S.rendas.find(x=>x.id===F.rendaId),m=mesDe(F.d);if(r){const pl=(S.varMes[m]&&S.varMes[m][r.id]!=null)?S.varMes[m][r.id]:r.valor;if(Math.abs(F.v-pl)>.004){(S.varMes[m]=S.varMes[m]||{})[r.id]=F.v;setTimeout(()=>toast('Plano de '+MESES[+m.slice(5)-1]+' atualizado para '+brl0(F.v)),400)}}}
     if(!F.cat){F.cat=F.tipo==='e'?'entrada':'outros'}
     const v=F.tipo==='e'?Math.abs(F.v):-Math.abs(F.v);
     const pg=pagAtual(),viaCartao=F.tipo==='s'&&pg[0]==='k';
@@ -906,6 +925,7 @@ const A={
   fApagar(){if(!confirm('Apagar este lançamento?'))return;(S.del=S.del||[]).push(F.id);S.tx=S.tx.filter(x=>x.id!==F.id);fecha();save()},
   pagar(d){
     const c=contasDoMes(mesDe(hoje())).find(x=>x.id===d.id);if(!c)return;
+    if(c.fat){formTx(null);F.tipo='t';F.para='k:'+c.fk;F.fatMes=mesDe(hoje());F.v=Math.max(0,+(c.valor-(c.pago||0)).toFixed(2));drawTx();return}
     formTx(null);F.cat=c.cat;F.conta=c.cat==='contas'?c.id:undefined;F.desc=c.nome;F.v=Math.max(0,c.valor-pagoConta(c,mesDe(hoje())));drawTx();
   },
   rvCat(d){const t=S.tx.find(x=>x.id===d.id);if(!t)return;t.cat=d.c;if(d.c!=='contas')delete t.conta;else{const h=dicaConta(t);if(h)t.conta=h}aprender(t);
