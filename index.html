@@ -350,7 +350,7 @@ const $=s=>document.querySelector(s);
 const LS='saveon:v1',LA='saveon:auth',LT='saveon:tema',LP='saveon:pdfpw';
 let IMPF='debito',IMPCC=null,IMPCARD=null;
 const LC='saveon:conta';
-const VERSAO='v13';
+const VERSAO='v14';
 const API=(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:8788':'https://saveon.igordejesusp.workers.dev';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const brl=v=>(v<0?'−':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -433,7 +433,7 @@ const REGRAS_BASE=[
 const CONTA_HINT={CEMIG:'energia',ENERGIA:'energia',WELLHUB:'wellhub',GYMPASS:'wellhub',FATURA:'cartao',ALUGUEL:'aluguel',ALGAR:'internet'};
 
 /* ============ estado ============ */
-const VAZIO=()=>({v:1,rendas:[],varMes:{},contas:[],avulsos:[],metas:{mercado:800,variaveis:300,guardarPct:10},dividas:[],reserva:0,saldoBase:null,carteiras:null,cartoes:null,ultCc:null,tx:[],regras:[],del:[],imports:[],contaMes:{},pagoMan:{},meusNomes:[],naoNomes:[],criado:hoje()});
+const VAZIO=()=>({v:1,rendas:[],varMes:{},contas:[],avulsos:[],metas:{mercado:800,variaveis:300,guardarPct:10},dividas:[],reserva:0,saldoBase:null,ign:[],carteiras:null,cartoes:null,ultCc:null,tx:[],regras:[],del:[],imports:[],contaMes:{},pagoMan:{},meusNomes:[],naoNomes:[],criado:hoje()});
 let S;
 try{S=JSON.parse(localStorage.getItem(LS))}catch(e){S=null}
 if(!S||typeof S!=='object')S=VAZIO();
@@ -931,7 +931,7 @@ const A={
   },
   desfazImp(d){const ts=S.tx.filter(t=>t.imp===d.id);if(!confirm(`Desfazer esta importação? Vão sair ${ts.length} lançamentos.`))return;S.del=(S.del||[]).concat(ts.map(t=>t.id));S.tx=S.tx.filter(t=>t.imp!==d.id);S.imports=S.imports.filter(i=>i.id!==d.id);save();toast('Importação desfeita')},
   limpaImp(){const ts=S.tx.filter(t=>t.src==='import');if(!confirm(`Apagar os ${ts.length} lançamentos que vieram de extratos? Os lançamentos que você fez à mão ficam.`))return;S.del=(S.del||[]).concat(ts.map(t=>t.id));S.tx=S.tx.filter(t=>t.src!=='import');S.imports=[];save();toast('Lançamentos de extratos apagados')},
-  fApagar(){if(!confirm('Apagar este lançamento?'))return;(S.del=S.del||[]).push(F.id);S.tx=S.tx.filter(x=>x.id!==F.id);fecha();save()},
+  fApagar(){if(!confirm('Apagar este lançamento?'))return;{const t=S.tx.find(x=>x.id===F.id);if(t&&t.src==='import')(S.ign=S.ign||[]).push(sigTx(t));S.ign=(S.ign||[]).slice(-800)}(S.del=S.del||[]).push(F.id);S.tx=S.tx.filter(x=>x.id!==F.id);fecha();save()},
   pagar(d){
     const c=contasDoMes(mesDe(hoje())).find(x=>x.id===d.id);if(!c)return;
     if(c.fat){formTx(null);F.tipo='t';F.para='k:'+c.fk;F.fatMes=mesDe(hoje());F.v=Math.max(0,+(c.valor-(c.pago||0)).toFixed(2));drawTx();return}
@@ -1065,7 +1065,7 @@ $('#fImp').addEventListener('change',async e=>{
     if(IMPF==='debito'&&lin.saldoFinal){const c=S.carteiras.find(x=>x.id===(IMPCC||S.carteiras[0].id));if(c){c.base=+(lin.saldoFinal.v-soma(S.tx.filter(t=>t.fonte!=='cartao'&&ccDe(t)===c.id&&t.d<=lin.saldoFinal.d),'v')).toFixed(2);msgS=` · saldo de ${c.nome} acertado para ${brl(lin.saldoFinal.v)} (${dm(lin.saldoFinal.d)})`}}
     if(IMPF==='cartao'&&lin.cartao){const k=S.cartoes.find(x=>x.id===(IMPCARD||S.cartoes[0].id));if(k){const q=lin.cartao;if(q.limite>0)k.limite=q.limite;if(q.futuras!==null){k.futuras=q.futuras;k.futurasEm=hoje()}if(q.fecha)k.fecha=q.fecha;if(q.venc)k.venc=q.venc}}
     fecha();save();
-    toast((lin.conf&&lin.conf.ok?'Totais conferem ✓ · ':'')+`${IMPF==='cartao'?'Cartão':'Débito'}: ${r.novos} novos${msgS}${r.novos?` · ${r.auto} já classificados${r.duvida?` · ${r.duvida} para você conferir`:''}`:''}${r.rep?' · '+r.rep+' já estavam':''}`);
+    toast((lin.conf&&lin.conf.ok?'Totais conferem ✓ · ':'')+`${IMPF==='cartao'?'Cartão':'Débito'}: ${r.novos} novos${msgS}${r.novos?` · ${r.auto} já classificados${r.duvida?` · ${r.duvida} para você conferir`:''}`:''}${r.rep?' · '+r.rep+' repetido'+(r.rep>1?'s':'')+' de extrato anterior, não somado'+(r.rep>1?'s':''):''}`);
     if(r.duvida)A.irRevisar();else A.tab({t:'hoje'});
   }catch(err){console.error(err);toast('Não consegui ler: '+(err.message||err))}
 });
@@ -1271,8 +1271,11 @@ function lerLinhas(linhas,fonte){
   }
   return out;
 }
+/* impressão digital de um lançamento do banco: conta + data + valor original + descrição original.
+   Editar categoria, nome ou sinal depois não muda isso, então o mesmo lançamento num extrato que se sobrepõe nunca entra duas vezes. */
+const sigTx=t=>(t.fonte==='cartao'?'k:'+cartaoDe(t):'c:'+ccDe(t))+'|'+t.d+'|'+(t.v0!=null?t.v0:t.v).toFixed(2)+'|'+norm(t.descBanco||t.desc).slice(0,24);
 function juntar(lin,fonte,op){
-  const sig=t=>t.d+'|'+t.v.toFixed(2)+'|'+norm(t.desc).slice(0,24);
+  const sig=sigTx;const ign=new Set(S.ign||[]);
   fonte=fonte||'debito';
   const fids=new Set(S.tx.filter(t=>t.fid).map(t=>t.fid));
   const tem={};S.tx.forEach(t=>{tem[sig(t)]=(tem[sig(t)]||0)+1});
@@ -1280,14 +1283,14 @@ function juntar(lin,fonte,op){
   let novos=0,rep=0,merge=0,auto=0,duvida=0,de='9999',ate='0000';const impId=uid();
   for(const x of lin){
     if(x.d<de)de=x.d;if(x.d>ate)ate=x.d;
-    const sg=sig(x);vistos[sg]=(vistos[sg]||0)+1;
+    const sg=sig({...x,fonte,cc:op&&op.cc,card:op&&op.card});vistos[sg]=(vistos[sg]||0)+1;
     // mesma linha de um extrato anterior (os de 7 dias se sobrepõem); duas compras iguais no mesmo dia continuam valendo
-    if((x.fid&&fids.has(x.fid))||vistos[sg]<=(tem[sg]||0)){rep++;continue}
+    if((x.fid&&fids.has(x.fid))||vistos[sg]<=(tem[sg]||0)||ign.has(sg)){rep++;continue}
     const dx=new Date(x.d+'T12:00');
     const man=S.tx.find(t=>t.src==='manual'&&!t.casado&&Math.abs(t.v-x.v)<.01&&Math.abs(new Date(t.d+'T12:00')-dx)<=2.5*864e5);
     if(man){man.casado=true;man.fid=x.fid;man.desc=man.desc||x.desc;man.descBanco=x.desc;merge++;continue}
     const a=x.cat?{cat:x.cat,firme:true}:autoCat(x.desc,x.v,fonte);
-    S.tx.push({id:uid(),d:x.d,v:x.v,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',imp:impId,fonte,cc:fonte==='cartao'?undefined:(op&&op.cc)||undefined,card:fonte==='cartao'?(op&&op.card)||undefined:undefined,pg:fonte==='cartao'&&x.v>0&&/PAGAMENTO|PAGTO/.test(norm(x.desc))||undefined,parc:x.parc||undefined,ok:!!a.firme,ts:Date.now()});
+    S.tx.push({id:uid(),d:x.d,v:x.v,v0:x.v,descBanco:x.desc,desc:x.desc,cat:a.cat,conta:a.conta,fid:x.fid,src:'import',imp:impId,fonte,cc:fonte==='cartao'?undefined:(op&&op.cc)||undefined,card:fonte==='cartao'?(op&&op.card)||undefined:undefined,pg:fonte==='cartao'&&x.v>0&&/PAGAMENTO|PAGTO/.test(norm(x.desc))||undefined,parc:x.parc||undefined,ok:!!a.firme,ts:Date.now()});
     novos++;a.firme?auto++:duvida++;
   }
   (S.imports=S.imports||[]).push({id:impId,em:Date.now(),fonte,n:novos,de:lin.length?de:null,ate:lin.length?ate:null});
